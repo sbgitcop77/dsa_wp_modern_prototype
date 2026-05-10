@@ -1,0 +1,230 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Brand variables ── */
+:root {
+  --bs-primary: #337C99;
+  --bs-danger: #b6070e;
+  --bs-info: #00141B;
+  --bs-warning: #f33b41;
+  --bs-light: #F7F7F7;
+  --bs-dark: #131313;
+  --bs-body-color: #212529;
+  --bs-body-bg: #fff;
+  --bs-secondary-color: #6c757d;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #fff;
+  color: #212529;
+  font-family: var(--font-inter), Inter, sans-serif;
+  font-size: 1.2rem;
+  font-weight: 300;
+  line-height: 1.5;
+}
+
+/* ── Program tiles ── */
+.program-tile {
+  height: 320px;
+  background-color: #111;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  overflow: hidden;
+  border-radius: 1rem;
+  position: relative;
+}
+.program-tile img {
+  transition: transform 0.5s ease, filter 0.4s ease;
+  filter: brightness(70%);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  inset: 0;
+}
+.program-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 1.5rem;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.85), transparent 70%);
+  transition: background 0.4s ease;
+}
+.program-tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.5);
+}
+.program-tile:hover img {
+  transform: scale(1.03);
+  filter: brightness(80%);
+}
+
+/* ── Value cards ── */
+.value-card {
+  min-height: 350px;
+  position: relative;
+  z-index: 2;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  border-radius: 1rem;
+  overflow: hidden;
+}
+.value-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.4);
+}
+.value-img {
+  width: 45%;
+  max-width: 240px;
+  max-height: 350px;
+  object-fit: contain;
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  z-index: -1;
+  opacity: 0.95;
+  transition: transform 0.4s ease;
+}
+.value-card:hover .value-img {
+  transform: scale(1.05);
+}
+
+/* ── Icon circles ── */
+.icon-circle {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+.why-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.3);
+}
+
+/* ── Stat circles ── */
+.stat-circle {
+  width: 140px;
+  height: 140px;
+  border: 2px solid #e0e0e0;
+  border-radius: 50%;
+  background: #fafafa;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+
+/* ── Navbar ── */
+#navbar {
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+#navbar.scrolled {
+  background-color: #fff !important;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
+}
+#navbar.scrolled .nav-link {
+  color: #212529 !important;
+}
+#navbar.scrolled .navbar-brand img {
+  filter: none !important;
+}
+#navbar.scrolled .navbar-call-mobile {
+  color: #212529 !important;
+}
+#navbar.scrolled .btn-outline-warning {
+  color: var(--bs-warning) !important;
+  border-color: var(--bs-warning) !important;
+}
+.nav-link {
+  color: rgba(255, 255, 255, 0.85) !important;
+  font-weight: 300;
+  font-size: 1rem;
+  transition: color 0.15s ease;
+}
+.nav-link:hover {
+  color: #fff !important;
+}
+
+/* ── Hero stat badge ── */
+.hero-badge {
+  border-radius: 1rem 1rem 0 1rem;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+::-webkit-scrollbar-thumb { background: #337C99; border-radius: 3px; }
+
+/* ── Why Choose Us overlay ── */
+.why-choose-us-overlay {
+  background: linear-gradient(to right, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 50%, transparent 100%);
+}
+
+/* ── Booking system utility classes ── */
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors;
+    background-color: #337C99;
+  }
+  .btn-primary:hover {
+    background-color: #265d73;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-lg text-sm font-semibold bg-white border border-gray-300 text-[#212529] hover:bg-gray-50 transition-colors;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-lg text-sm font-semibold text-white transition-colors;
+    background-color: #f33b41;
+  }
+  .btn-danger:hover {
+    background-color: #d62f35;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  }
+  .input {
+    @apply w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm text-[#212529] placeholder-[#adb5bd] focus:outline-none transition-colors;
+    --tw-ring-color: #337C99;
+  }
+  .input:focus {
+    border-color: #337C99;
+  }
+  .label {
+    @apply block text-sm font-medium text-[#6c757d] mb-1.5;
+  }
+  .badge-green {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700;
+  }
+  .badge-red {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700;
+  }
+  .badge-yellow {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700;
+  }
+  .badge-gray {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-[#6c757d];
+  }
+  .badge-blue {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700;
+  }
+  .badge-orange {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700;
+  }
+  .badge-purple {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700;
+  }
+}

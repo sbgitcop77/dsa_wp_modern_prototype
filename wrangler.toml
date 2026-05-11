@@ -1,4 +1,4 @@
-name = "dsa-modern-prototype"
+name = "dsa_wp_modern_prototype"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 

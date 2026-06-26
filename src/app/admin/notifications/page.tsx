@@ -25,6 +25,8 @@ const STATUS_BADGE: Record<NotificationRecord["deliveryStatus"], string> = {
   failed: "badge-red",
 };
 
+const PAGE_SIZE = 30;
+
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
   const [channelFilter, setChannelFilter] = useState("all");
@@ -32,6 +34,7 @@ export default function NotificationsPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [page, setPage] = useState(1);
 
   const filtered = notifications.filter(n => {
     const q = search.toLowerCase();
@@ -87,21 +90,21 @@ export default function NotificationsPage() {
           className="input w-56 text-sm py-1.5"
           placeholder="Search by name or reference…"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
         />
-        <select className="input w-36 text-sm py-1.5" value={channelFilter} onChange={e => setChannelFilter(e.target.value)}>
+        <select className="input w-36 text-sm py-1.5" value={channelFilter} onChange={e => { setChannelFilter(e.target.value); setPage(1); }}>
           <option value="all">All Channels</option>
           <option value="email">Email</option>
           <option value="sms">SMS</option>
           <option value="calendar">Calendar</option>
         </select>
-        <select className="input w-36 text-sm py-1.5" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+        <select className="input w-36 text-sm py-1.5" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }}>
           <option value="all">All Statuses</option>
           <option value="sent">Sent</option>
           <option value="pending">Pending</option>
           <option value="failed">Failed</option>
         </select>
-        <select className="input w-44 text-sm py-1.5" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+        <select className="input w-44 text-sm py-1.5" value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }}>
           <option value="all">All Types</option>
           {Object.entries(TYPE_LABELS).map(([k, v]) => (
             <option key={k} value={k}>{v}</option>
@@ -122,7 +125,7 @@ export default function NotificationsPage() {
           <tbody className="divide-y divide-gray-100">
             {filtered.length === 0 ? (
               <tr><td colSpan={7} className="px-4 py-8 text-center text-[#6c757d]">No notifications found</td></tr>
-            ) : filtered.map(n => (
+            ) : filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(n => (
               <tr key={n.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono text-xs text-[#337C99]">{n.bookingReference}</td>
                 <td className="px-4 py-3">
@@ -146,6 +149,24 @@ export default function NotificationsPage() {
             ))}
           </tbody>
         </table>
+        {(() => {
+          const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+          if (totalPages <= 1) return null;
+          return (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 text-sm">
+              <span className="text-[#6c757d]">
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  className="btn-secondary text-xs py-1 px-2.5 disabled:opacity-40">←</button>
+                <span className="px-3 text-[#6c757d]">{page} / {totalPages}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  className="btn-secondary text-xs py-1 px-2.5 disabled:opacity-40">→</button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

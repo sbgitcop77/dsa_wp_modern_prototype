@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hosting Analysis — Cloudflare vs. WordPress vs. Vercel vs. Netlify</title>
+<style>
+  :root {
+    --bs-primary: #337C99;
+    --bs-danger: #b6070e;
+    --bs-warning: #f33b41;
+    --bs-info: #00141B;
+    --bs-light: #F7F7F7;
+    --bs-dark: #131313;
+    --text: #212529;
+    --muted: #6c757d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    color: var(--text);
+    background: var(--bs-light);
+    line-height: 1.6;
+  }
+  header {
+    background: var(--bs-info);
+    color: #fff;
+    padding: 48px 24px;
+  }
+  header .wrap { max-width: 960px; margin: 0 auto; }
+  header h1 { margin: 0 0 8px; font-size: 1.9rem; }
+  header p { margin: 0; color: rgba(255,255,255,0.7); font-size: 0.95rem; }
+  main { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+  section { background: #fff; border-radius: 12px; padding: 28px 32px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  h2 {
+    color: var(--bs-primary);
+    font-size: 1.3rem;
+    margin-top: 0;
+    border-bottom: 2px solid var(--bs-light);
+    padding-bottom: 10px;
+  }
+  h3 { font-size: 1.05rem; margin-bottom: 6px; }
+  p { margin: 0 0 14px; }
+  .muted { color: var(--muted); font-size: 0.9rem; }
+  .callout {
+    border-left: 4px solid var(--bs-primary);
+    background: rgba(51, 124, 153, 0.06);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+  }
+  .callout.warn {
+    border-left-color: var(--bs-warning);
+    background: rgba(243, 59, 65, 0.06);
+  }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #e9ecef; vertical-align: top; }
+  th { background: var(--bs-light); color: var(--text); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .pill-good { background: #d1f7e0; color: #0a6e3a; }
+  .pill-bad { background: #fde0e0; color: var(--bs-danger); }
+  ul { padding-left: 20px; margin: 0 0 14px; }
+  li { margin-bottom: 6px; }
+  .option-card {
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .option-card h3 { color: var(--bs-info); }
+  .pro-con { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; }
+  .pro-con div { flex: 1; min-width: 240px; }
+  .pro-con .label { font-weight: 600; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+  .pro { color: #0a6e3a; }
+  .con { color: var(--bs-danger); }
+  .recommendation {
+    background: var(--bs-info);
+    color: #fff;
+    padding: 20px 24px;
+    border-radius: 10px;
+  }
+  .recommendation h2 { color: #fff; border-bottom-color: rgba(255,255,255,0.15); }
+  .recommendation a { color: #9fd3e8; }
+  footer { text-align: center; color: var(--muted); font-size: 0.82rem; padding: 0 24px 40px; }
+  a { color: var(--bs-primary); }
+  code { background: #f1f3f5; padding: 1px 6px; border-radius: 4px; font-size: 0.88em; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1>Hosting Analysis: Cloudflare vs. WordPress vs. Vercel vs. Netlify</h1>
+    <p>The Diamond Sports Academy — Findings from project hosting discussion · Updated with live production cost comparison</p>
+  </div>
+</header>
+
+<main>
+
+  <section>
+    <h2>1. Clarifying what "Cloudflare" actually means here</h2>
+    <p>The original concern was that "Cloudflare is just a front for websites hosted on other platforms." That's true of one Cloudflare product, but not the one this project uses.</p>
+    <table>
+      <tr><th>Product</th><th>What it actually is</th></tr>
+      <tr>
+        <td><strong>Cloudflare CDN / proxy</strong><br><span class="muted">(the "orange cloud")</span></td>
+        <td>Sits <em>in front of</em> a site hosted elsewhere (a VPS, WordPress host, AWS, etc.) for DDoS protection, caching, and free SSL. The real site lives on a separate origin server. This is the product the "just a front" description fits.</td>
+      </tr>
+      <tr>
+        <td><strong>Cloudflare Pages</strong><br><span class="muted">(what this project uses)</span></td>
+        <td>A real hosting platform — the same category as Vercel, Netlify, or GitHub Pages. There is no separate origin: Cloudflare's network <em>is</em> the host. Configured here via <code>wrangler.toml</code> and <code>next.config.mjs</code>'s <code>output: export</code>.</td>
+      </tr>
+    </table>
+    <div class="callout">
+      The "just a front for other hosts" concern doesn't apply to what's actually deployed in this repo. The relevant comparison is Cloudflare Pages vs. other <em>static hosting</em> platforms — not Cloudflare vs. "real" hosting.
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Could this be hosted on WordPress instead?</h2>
+    <p>This project is Next.js / React / TypeScript. WordPress is PHP + MySQL. WordPress cannot run this codebase directly — "hosting on WordPress" means rebuilding, not just redeploying. Three real options:</p>
+
+    <div class="option-card">
+      <h3>Option 1 — Rebuild natively in WordPress</h3>
+      <p>Recreate the design as a custom PHP theme; replace the bespoke admin/booking logic with WordPress plugins (e.g. Amelia or Bookly for booking, ACF for content, WooCommerce for payments/memberships).</p>
+      <div class="pro-con">
+        <div><div class="label pro">Pros</div>
+          <ul><li>Non-technical staff can edit content via wp-admin</li>
+          <li>Huge plugin ecosystem</li>
+          <li>Matches the real business's existing site (thediamondsportsacademy.com)</li></ul>
+        </div>
+        <div><div class="label con">Cons</div>
+          <ul><li>Discards nearly everything built so far — booking wizard, recurring-series conflict validation, lane-utilization heatmap, waitlist auto-promotion, CSV import wizard</li>
+          <li>None of those are standard WP booking-plugin features — would require custom PHP plugin development from scratch, a different stack entirely</li></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="option-card">
+      <h3>Option 2 — Headless WordPress + keep the Next.js frontend</h3>
+      <p>WordPress becomes a content backend only (pages, coach bios, blog) exposed via REST/WPGraphQL; this React frontend keeps rendering everything.</p>
+      <div class="pro-con">
+        <div><div class="label pro">Pros</div>
+          <ul><li>Non-technical content editing without losing the current UI/booking-wizard work</li></ul>
+        </div>
+        <div><div class="label con">Cons</div>
+          <ul><li>Two systems to maintain (WP backend + Next.js frontend) instead of one</li>
+          <li>Next.js still needs a Node-capable host regardless — WordPress hosting alone can't serve it</li>
+          <li>Bespoke booking/admin logic still needs a real backend either way</li></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="option-card">
+      <h3>Option 3 — Stay static (current path), add a real backend later</h3>
+      <p>Keep the React/Next.js prototype as-is; when ready for production, add Cloudflare Workers + D1 (or an external API) for real bookings/auth/payments instead of mock data.</p>
+      <div class="pro-con">
+        <div><div class="label pro">Pros</div>
+          <ul><li>Nothing already built gets discarded</li>
+          <li>Cheapest hosting, global CDN, no PHP/MySQL security surface</li>
+          <li>Fits a static prototype with no real DB perfectly as-is</li></ul>
+        </div>
+        <div><div class="label con">Cons</div>
+          <ul><li>No built-in editorial CMS — content changes require a code change + redeploy</li></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Does switching to Vercel reduce vendor lock-in?</h2>
+    <p><strong>No — this was a misconception worth correcting.</strong> The project already made the most portability-friendly choice available: <code>output: export</code> in <code>next.config.mjs</code> produces plain static HTML/CSS/JS in <code>/out</code>. That build output is framework- and host-agnostic — it can be deployed to Cloudflare Pages, Vercel, Netlify, GitHub Pages, S3+CloudFront, or a bare Nginx box with zero code changes.</p>
+    <p>The only Cloudflare-specific artifact today is <code>wrangler.toml</code> — one small config file. Removing it and deploying the same <code>/out</code> build to Vercel or Netlify is a 10-minute change, not a rebuild.</p>
+    <div class="callout">
+      <strong>The real lock-in risk</strong> isn't which static host is chosen today — it's adopting a platform's <em>proprietary runtime services</em> later for the real backend this prototype will eventually need (everything is still mock data today). Vercel's ISR/Edge Config/KV, Cloudflare's Workers + D1 + Durable Objects, and Netlify's Functions/Blobs are all equally capable of creating lock-in once real backend logic depends on them. That risk is symmetric across all three providers — Vercel is not inherently "more portable."
+    </div>
+  </section>
+
+  <section>
+    <h2>4. Pricing comparison</h2>
+    <p>Free tier vs. cheapest paid tier, evaluated for a low-to-moderate-traffic small business site:</p>
+    <table>
+      <tr>
+        <th></th>
+        <th>Cloudflare Pages</th>
+        <th>Vercel</th>
+        <th>Netlify</th>
+      </tr>
+      <tr>
+        <td>Free tier bandwidth</td>
+        <td><span class="pill pill-good">Unlimited</span></td>
+        <td>100 GB/mo hard cap — site pauses past it</td>
+        <td>~15 GB/mo (300 credits)</td>
+      </tr>
+      <tr>
+        <td>Free tier commercial use</td>
+        <td><span class="pill pill-good">Allowed</span></td>
+        <td><span class="pill pill-bad">Not allowed</span> — Hobby plan is personal/non-commercial only</td>
+        <td><span class="pill pill-good">Allowed</span></td>
+      </tr>
+      <tr>
+        <td>Free tier builds</td>
+        <td>500 builds/mo</td>
+        <td>Generous, no hard published cap for typical use</td>
+        <td>300 build minutes/mo</td>
+      </tr>
+      <tr>
+        <td>Cheapest paid plan</td>
+        <td>$5/mo (Workers Paid — only needed past free limits or for backend functions/KV/D1)</td>
+        <td>$20/mo <strong>per seat</strong></td>
+        <td>$20/mo (~150 GB via 3,000 credits)</td>
+      </tr>
+      <tr>
+        <td>Overage cost</td>
+        <td>Soft — Cloudflare asks you to upgrade rather than billing or cutting traffic</td>
+        <td>$0.15/GB</td>
+        <td>~$0.13/GB (credit recharge packs)</td>
+      </tr>
+    </table>
+    <div class="callout warn">
+      <strong>Key finding:</strong> Vercel's free Hobby tier explicitly prohibits commercial use. Since this is a business website, Vercel would likely require the $20/month-per-seat Pro plan from day one — while Cloudflare Pages and Netlify both permit commercial use on their free tiers.
+    </div>
+  </section>
+
+  <section>
+    <h2>5. Bottom line (prototype-stage findings)</h2>
+    <ul>
+      <li>The "Cloudflare is just a front for other hosts" concern applies to Cloudflare's CDN/proxy product, not Cloudflare Pages, which is what this project actually uses.</li>
+      <li>The current static-export setup is already close to maximally portable, independent of which host is chosen — switching between Cloudflare Pages, Vercel, and Netlify today is a small config change, not a rebuild.</li>
+      <li>Cloudflare Pages is currently the <strong>cheapest</strong> of the three options for this commercial, low-to-moderate-traffic site, mainly due to unlimited free bandwidth and no commercial-use restriction.</li>
+      <li>No strong technical or cost case was found for moving off Cloudflare Pages at this time.</li>
+    </ul>
+    <p class="muted">The section below extends this analysis for the live, production version of the site (real backend, real customer, going live).</p>
+  </section>
+
+  <section>
+    <h2>6. Production cost comparison — live site with a real backend</h2>
+    <p>This is no longer a prototype exercise — the site is going live for a paying customer with a real backend. The comparison below prices out the actual stack: hosting, database, transactional email, SMS reminders, and payments.</p>
+
+    <div class="callout">
+      <strong>Inputs used for this comparison:</strong>
+      <ul style="margin-top:8px;">
+        <li>Traffic: small — under 10,000 visits/month</li>
+        <li>Backend needs: real database (bookings/customers/instructors), transactional email, SMS reminders, payment processing</li>
+        <li>Architecture: all-in-one platform (hosting + backend services from the same vendor) rather than a separate dedicated backend server</li>
+        <li>Target budget: under $25/month for hosting + platform services</li>
+      </ul>
+    </div>
+
+    <h3 style="margin-top:24px;">Platform + database cost (this is what actually differs between hosts)</h3>
+    <table>
+      <tr>
+        <th></th>
+        <th>Cloudflare</th>
+        <th>Vercel</th>
+        <th>Netlify</th>
+      </tr>
+      <tr>
+        <td>Hosting</td>
+        <td><span class="pill pill-good">$0</span> — unlimited bandwidth, commercial use allowed on free tier</td>
+        <td><span class="pill pill-bad">$20/mo per seat</span> — Pro is mandatory, Hobby forbids commercial use</td>
+        <td><span class="pill pill-good">$0</span> — free tier allows commercial use, ~15GB bandwidth (300 credits)</td>
+      </tr>
+      <tr>
+        <td>Database</td>
+        <td><span class="pill pill-good">$0</span> — D1 free tier: 5GB storage, 150M rows read/mo, 3M rows written/mo. Enormous headroom at this traffic level</td>
+        <td>~$0, tighter margin — Neon free tier via Vercel: 100 CU-hours/mo, 0.5GB storage/project</td>
+        <td>~$0, but <strong>shares the same 300-credit pool as hosting bandwidth</strong>, and DB storage stops being free after July 1, 2026</td>
+      </tr>
+      <tr>
+        <td>API / backend functions</td>
+        <td>$0 — Pages Functions free tier: 100k requests/day (≈3M/mo)</td>
+        <td>included in Pro</td>
+        <td>included in free credits</td>
+      </tr>
+      <tr>
+        <td><strong>Estimated platform total</strong></td>
+        <td><strong>$0–5/mo</strong></td>
+        <td><strong>$20+/mo per seat</strong></td>
+        <td><strong>$0–20/mo, fragile</strong></td>
+      </tr>
+    </table>
+
+    <h3 style="margin-top:24px;">Email + SMS + payments (host-agnostic — same cost on any platform)</h3>
+    <p class="muted">These are third-party services and don't change based on which hosting platform is chosen, but they're part of the real total monthly cost of running the live site.</p>
+    <table>
+      <tr><th>Service</th><th>Estimated cost at this scale</th></tr>
+      <tr>
+        <td>Transactional email (Resend)</td>
+        <td>$0/mo — free tier covers 3,000 emails/mo (100/day); booking confirmations + reminders for a business this size will land well under that</td>
+      </tr>
+      <tr>
+        <td>SMS reminders (Twilio)</td>
+        <td>~$2.50–$4/mo — $0.0083/message + $1.15/mo phone number, assuming ~150–300 reminder texts/month</td>
+      </tr>
+      <tr>
+        <td>Payments (Stripe)</td>
+        <td>2.9% + $0.30 per transaction — revenue-based, not a fixed monthly cost</td>
+      </tr>
+    </table>
+
+    <div class="callout warn">
+      <strong>Security gap to budget for regardless of platform choice:</strong> the live site shouldn't ship with the current hardcoded <code>admin</code> / <code>diamond123</code> cookie protecting customer data. The fix is effectively free either way — <strong>Cloudflare Access</strong> (free for up to 50 users, protects <code>/admin/*</code> with zero app code) fits naturally if Cloudflare is chosen, or NextAuth (free, just dev time) works on any platform. This doesn't move the monthly cost figures above, but it's necessary dev work before going live.
+    </div>
+  </section>
+
+  <section class="recommendation">
+    <h2>7. Final recommendation — production stack</h2>
+    <ul>
+      <li><strong>Cloudflare</strong>: full stack (hosting + DB + functions) effectively <strong>$0/mo</strong> at this traffic level, with the entire D1 free tier as buffer. Add ~$3–4/mo for SMS. Comfortably under the $25/mo budget with room to grow before hitting any paid tier.</li>
+      <li><strong>Vercel</strong>: hosting alone is $20/mo per seat — over 80% of the budget gone before the database, email, or SMS are even counted. Cost multiplies if more than one person needs platform access.</li>
+      <li><strong>Netlify</strong>: technically $0/mo, but hosting bandwidth and database usage draw from the same 300-credit pool, making it the most likely of the three to unexpectedly tip into the $20/mo Pro tier — especially once Netlify DB storage stops being free in July 2026.</li>
+      <li><strong>Recommendation:</strong> Cloudflare is the clear winner for this traffic/budget combination — not just slightly cheaper, but the only one of the three with real margin left in a sub-$25/mo budget after the database and functions are accounted for.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer>
+  Generated from project hosting discussion · The Diamond Sports Academy — production launch planning
+</footer>
+
+</body>
+</html>

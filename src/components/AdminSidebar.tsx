@@ -3,19 +3,18 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, CalendarDays, Users, UserCheck,
-  Clock, Bell, Upload, Settings, ListOrdered, BarChart2,
+  Clock, Bell, Settings, ListOrdered, BarChart2,
 } from "lucide-react";
 
 const NAV_ITEMS = [
-  { label: "Dashboard",    icon: LayoutDashboard, href: "/admin" },
-  { label: "Bookings",     icon: CalendarDays,    href: "/admin/bookings" },
+  { label: "Today's Schedule", icon: LayoutDashboard, href: "/admin" },
+  { label: "Manage Bookings", icon: CalendarDays,  href: "/admin/bookings" },
   { label: "Waitlist",     icon: ListOrdered,     href: "/admin/waitlist" },
   { label: "Customers",    icon: Users,           href: "/admin/customers" },
   { label: "Instructors",  icon: UserCheck,       href: "/admin/instructors" },
-  { label: "Schedule",     icon: Clock,           href: "/admin/schedule" },
+  { label: "Academy Schedule", icon: Clock,        href: "/admin/schedule" },
   { label: "Reports",      icon: BarChart2,       href: "/admin/reports" },
   { label: "Notifications",icon: Bell,            href: "/admin/notifications" },
-  { label: "Import Data",  icon: Upload,          href: "/admin/import" },
   { label: "Settings",     icon: Settings,        href: "/admin/settings" },
 ];
 

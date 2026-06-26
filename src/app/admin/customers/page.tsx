@@ -7,6 +7,8 @@ import Toast from "@/components/Toast";
 import type { Customer } from "@/data/mock/customers";
 import { Pencil, X, Check } from "lucide-react";
 
+const PAGE_SIZE = 20;
+
 type View = "list" | "profile";
 
 export default function CustomersPage() {
@@ -20,6 +22,7 @@ export default function CustomersPage() {
   const [editForm, setEditForm] = useState<Partial<Customer>>({});
   const [deactivateConfirm, setDeactivateConfirm] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [page, setPage] = useState(1);
 
   const filtered = customers.filter(c => {
     const q = search.toLowerCase();
@@ -222,13 +225,13 @@ export default function CustomersPage() {
       <h1 className="text-2xl font-bold text-[#212529] mb-6">Customers</h1>
 
       <div className="card p-4 mb-5 flex flex-wrap gap-3">
-        <input className="input w-60 text-sm py-1.5" placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)} />
-        <select className="input w-40 text-sm py-1.5" value={flagFilter} onChange={e => setFlagFilter(e.target.value)}>
+        <input className="input w-60 text-sm py-1.5" placeholder="Search by name or email…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+        <select className="input w-40 text-sm py-1.5" value={flagFilter} onChange={e => { setFlagFilter(e.target.value); setPage(1); }}>
           <option value="all">All Flags</option>
           <option value="flagged">Flagged</option>
           <option value="not_flagged">Not Flagged</option>
         </select>
-        <select className="input w-36 text-sm py-1.5" value={activeFilter} onChange={e => setActiveFilter(e.target.value)}>
+        <select className="input w-36 text-sm py-1.5" value={activeFilter} onChange={e => { setActiveFilter(e.target.value); setPage(1); }}>
           <option value="all">All Status</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
@@ -247,7 +250,7 @@ export default function CustomersPage() {
           <tbody className="divide-y divide-gray-100">
             {filtered.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-8 text-center text-[#6c757d]">No customers found</td></tr>
-            ) : filtered.map(c => (
+            ) : filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(c => (
               <tr key={c.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium text-[#212529]">{c.firstName} {c.lastName}</td>
                 <td className="px-4 py-3 text-[#6c757d]">{c.email}</td>
@@ -263,6 +266,24 @@ export default function CustomersPage() {
             ))}
           </tbody>
         </table>
+        {(() => {
+          const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+          if (totalPages <= 1) return null;
+          return (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 text-sm">
+              <span className="text-[#6c757d]">
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  className="btn-secondary text-xs py-1 px-2.5 disabled:opacity-40">←</button>
+                <span className="px-3 text-[#6c757d]">{page} / {totalPages}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  className="btn-secondary text-xs py-1 px-2.5 disabled:opacity-40">→</button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

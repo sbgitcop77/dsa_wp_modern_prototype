@@ -2,54 +2,43 @@
 import { useState } from "react";
 import { MOCK_BOOKINGS } from "@/data/mock/bookings";
 import { MOCK_CUSTOMERS } from "@/data/mock/customers";
-import type { Customer } from "@/data/mock/customers";
 import { MOCK_INSTRUCTORS } from "@/data/mock/instructors";
-import { LANE_CONFIG, LANE_UTILIZATION } from "@/data/mock/schedule";
+import { INSTRUCTOR_AVAILABILITY } from "@/data/mock/schedule";
 import Modal from "@/components/Modal";
 import Toast from "@/components/Toast";
 import type { Booking } from "@/data/mock/bookings";
 
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function startOfCurrentWeek(): Date {
-  const now = new Date();
-  const day = now.getDay(); // 0=Sun … 6=Sat
-  const diff = day === 0 ? -6 : 1 - day; // distance back to Monday
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
-}
-
-function weekDays(weekStart: Date) {
-  return DAY_LABELS.map((label, i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return { label: `${label} ${d.getDate()}`, date: d.toISOString().slice(0, 10) };
-  });
-}
-
-function formatWeekRange(weekStart: Date): string {
-  const end = new Date(weekStart);
-  end.setDate(weekStart.getDate() + 5);
-  const ms = weekStart.toLocaleDateString("en-US", { month: "short" });
-  const me = end.toLocaleDateString("en-US", { month: "short" });
-  const year = end.getFullYear();
-  return ms === me
-    ? `${ms} ${weekStart.getDate()} – ${end.getDate()}, ${year}`
-    : `${ms} ${weekStart.getDate()} – ${me} ${end.getDate()}, ${year}`;
-}
 
 const TIME_SLOTS: string[] = [];
-for (let h = 8; h < 20; h++) {
+for (let h = 9; h < 21; h++) {
   TIME_SLOTS.push(`${String(h).padStart(2, "0")}:00`);
   TIME_SLOTS.push(`${String(h).padStart(2, "0")}:30`);
 }
 
 const INSTRUCTOR_COLORS: Record<string, string> = {
-  i1: "bg-blue-100 border-blue-300 text-blue-800",
-  i2: "bg-purple-100 border-purple-300 text-purple-800",
-  i3: "bg-green-100 border-green-300 text-green-800",
+  i1:  "bg-blue-100 border-blue-300 text-blue-800",
+  i2:  "bg-purple-100 border-purple-300 text-purple-800",
+  i3:  "bg-green-100 border-green-300 text-green-800",
+  i5:  "bg-rose-100 border-rose-300 text-rose-800",
+  i6:  "bg-orange-100 border-orange-300 text-orange-800",
+  i7:  "bg-cyan-100 border-cyan-300 text-cyan-800",
+  i8:  "bg-amber-100 border-amber-300 text-amber-800",
+  i9:  "bg-indigo-100 border-indigo-300 text-indigo-800",
+  i10: "bg-teal-100 border-teal-300 text-teal-800",
+  i11: "bg-pink-100 border-pink-300 text-pink-800",
+};
+
+const INSTRUCTOR_ACCENT: Record<string, string> = {
+  i1:  "#3b82f6",
+  i2:  "#a855f7",
+  i3:  "#22c55e",
+  i5:  "#f43f5e",
+  i6:  "#f97316",
+  i7:  "#06b6d4",
+  i8:  "#eab308",
+  i9:  "#6366f1",
+  i10: "#14b8a6",
+  i11: "#ec4899",
 };
 
 function formatTime(t: string) {
@@ -58,41 +47,93 @@ function formatTime(t: string) {
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
+function formatDate(d: string) {
+  const [y, m, day] = d.split("-");
+  return `${m}-${day}-${y}`;
+}
+
+const SLOT_HEIGHT = 56;
+
+function timeToMins(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function timeToTop(t: string) {
+  return ((timeToMins(t) - 9 * 60) / 30) * SLOT_HEIGHT;
+}
+
 export default function AdminDashboard() {
   const [bookings, setBookings] = useState(MOCK_BOOKINGS);
-  const [weekStart, setWeekStart] = useState<Date>(() => startOfCurrentWeek());
   const [instructorFilter, setInstructorFilter] = useState("all");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
-  const [cancelScope, setCancelScope] = useState<"single" | "series">("single");
-  const [showNewBooking, setShowNewBooking] = useState(false);
+  const [cancelScope, setCancelScope] = useState<"single" | "series" | "confirm-single" | "confirm-series">("single");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
-  const [newForm, setNewForm] = useState({ customerId: "", customerName: "", customerQuery: "", instructorId: "i1", date: "", time: "", duration: "60" });
-  const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
+  const [editBooking, setEditBooking] = useState<Booking | null>(null);
+  const [editForm, setEditForm] = useState({ date: "", time: "", instructorId: "", duration: "60" });
+  const [rescheduleScope, setRescheduleScope] = useState<"single" | "series">("single");
 
-  const days = weekDays(weekStart);
+  const today = new Date().toISOString().slice(0, 10);
   const activeInstructors = MOCK_INSTRUCTORS.filter(i => i.isActive);
-  const weekBookings = bookings.filter(b =>
-    days.some(d => d.date === b.date) &&
-    b.status !== "cancelled"
-  );
+  const todayBookings = bookings.filter(b => b.date === today && b.status !== "cancelled");
+  const filteredTodayBookings = instructorFilter === "all" ? todayBookings : todayBookings.filter(b => b.instructorId === instructorFilter);
 
-  function prevWeek() {
-    setWeekStart(d => { const p = new Date(d); p.setDate(d.getDate() - 7); return p; });
-  }
-  function nextWeek() {
-    setWeekStart(d => { const n = new Date(d); n.setDate(d.getDate() + 7); return n; });
+  function openEdit(b: Booking) {
+    setEditBooking(b);
+    setEditForm({ date: b.date, time: b.startTime, instructorId: b.instructorId, duration: String(b.durationMinutes) });
+    setRescheduleScope("single");
+    setSelectedBooking(null);
   }
 
-  const filtered = instructorFilter === "all" ? weekBookings : weekBookings.filter(b => b.instructorId === instructorFilter);
+  function handleEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editBooking) return;
+    const dur = parseInt(editForm.duration) as 30 | 60;
+    const [h, m] = editForm.time.split(":").map(Number);
+    const endTotal = h * 60 + m + dur;
+    const endTime = `${String(Math.floor(endTotal / 60)).padStart(2, "0")}:${String(endTotal % 60).padStart(2, "0")}`;
+    const instructor = activeInstructors.find(i => i.id === editForm.instructorId);
+    const instructorName = instructor ? `${instructor.firstName} ${instructor.lastName}` : editBooking.instructorName;
 
-  function getBookingsForSlot(date: string, time: string) {
-    return filtered.filter(b => b.date === date && b.startTime === time);
+    if (rescheduleScope === "series" && editBooking.recurringSeriesId) {
+      setBookings(prev => prev.map(b => {
+        if (b.recurringSeriesId !== editBooking.recurringSeriesId || b.date < today) return b;
+        const sessionEnd = h * 60 + m + dur;
+        return {
+          ...b,
+          startTime: editForm.time,
+          endTime: `${String(Math.floor(sessionEnd / 60)).padStart(2, "0")}:${String(sessionEnd % 60).padStart(2, "0")}`,
+          durationMinutes: dur,
+          instructorId: editForm.instructorId,
+          instructorName,
+        };
+      }));
+      setToast({ message: "All upcoming sessions in this series have been updated.", type: "success" });
+    } else {
+      setBookings(prev => prev.map(b => b.id !== editBooking.id ? b : {
+        ...b,
+        date: editForm.date,
+        startTime: editForm.time,
+        endTime,
+        durationMinutes: dur,
+        instructorId: editForm.instructorId,
+        instructorName,
+      }));
+      const av = INSTRUCTOR_AVAILABILITY.find(a => a.instructorId === editForm.instructorId && a.date === editForm.date);
+      const available = av?.slots.includes(editForm.time) ?? false;
+      setToast({
+        message: available ? "Booking rescheduled." : "Booking rescheduled. Note: instructor availability not confirmed for this slot.",
+        type: available ? "success" : "info",
+      });
+    }
+    setEditBooking(null);
   }
 
   function handleCancelBooking() {
     if (!selectedBooking) return;
+    const cancelSeries = cancelScope === "series" || cancelScope === "confirm-series";
     setBookings(prev => prev.map(b => {
-      if (cancelScope === "series" && selectedBooking.recurringSeriesId && b.recurringSeriesId === selectedBooking.recurringSeriesId) {
+      if (cancelSeries && selectedBooking.recurringSeriesId && b.recurringSeriesId === selectedBooking.recurringSeriesId) {
         return { ...b, status: "cancelled" as const, cancelledBy: "admin" as const };
       }
       if (b.id === selectedBooking.id) {
@@ -100,68 +141,151 @@ export default function AdminDashboard() {
       }
       return b;
     }));
-    setToast({ message: "Booking cancelled.", type: "success" });
+    setToast({ message: cancelSeries ? "All series sessions cancelled." : "Booking cancelled.", type: "success" });
     setSelectedBooking(null);
+    setCancelScope("single");
   }
 
-  function handleCustomerSearch(query: string) {
-    setNewForm(f => ({ ...f, customerQuery: query, customerName: query, customerId: "" }));
-    if (query.length < 2) { setCustomerSuggestions([]); return; }
-    const q = query.toLowerCase();
-    setCustomerSuggestions(
-      MOCK_CUSTOMERS.filter(c =>
-        `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
-        c.email.toLowerCase().includes(q)
-      ).slice(0, 5)
-    );
-  }
 
-  function selectCustomer(c: Customer) {
-    setNewForm(f => ({ ...f, customerId: c.id, customerName: `${c.firstName} ${c.lastName}`, customerQuery: `${c.firstName} ${c.lastName}` }));
-    setCustomerSuggestions([]);
-  }
+  async function handleExportPDF() {
+    const { default: jsPDF } = await import("jspdf");
 
-  function handleNewBooking(e: React.FormEvent) {
-    e.preventDefault();
-    const dur = parseInt(newForm.duration) as 30 | 60;
-    const [h, m] = newForm.time.split(":").map(Number);
-    const endTotal = h * 60 + m + dur;
-    const endTime = `${String(Math.floor(endTotal / 60)).padStart(2, "0")}:${String(endTotal % 60).padStart(2, "0")}`;
-    const instructor = activeInstructors.find(i => i.id === newForm.instructorId);
-    const now = new Date();
-    const ds = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-    const ref = `DSA-${ds}-${String(Math.floor(1000 + Math.random() * 9000))}`;
-    const newBooking: Booking = {
-      id: `b${Date.now()}`,
-      bookingReference: ref,
-      cancellationToken: `tok-${Date.now()}`,
-      customerId: newForm.customerId || "unknown",
-      customerName: newForm.customerName,
-      instructorId: newForm.instructorId,
-      instructorName: instructor ? `${instructor.firstName} ${instructor.lastName}` : "",
-      date: newForm.date,
-      startTime: newForm.time,
-      endTime,
-      durationMinutes: dur,
-      status: "confirmed",
-      isForChild: false,
-      isRecurring: false,
-      isWalkIn: false,
-      laneAssigned: 1,
-      createdAt: now.toISOString(),
+    const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageW = pdf.internal.pageSize.getWidth();  // 297mm
+    const pageH = pdf.internal.pageSize.getHeight(); // 210mm
+    const margin = 8;
+    const timeColW = 18;
+    const contentX = margin + timeColW;
+    const contentW = pageW - contentX - margin;
+
+    // ── Same instructor-column layout as the UI ────────────────────────────
+    const ACCENT_RGB: Record<string, [number, number, number]> = {
+      i1:  [59, 130, 246],  i2:  [168, 85, 247],  i3:  [34, 197, 94],   i5:  [244, 63, 94],
+      i6:  [249, 115, 22],  i7:  [6, 182, 212],   i8:  [234, 179, 8],   i9:  [99, 102, 241],
+      i10: [20, 184, 166],  i11: [236, 72, 153],
     };
-    setBookings(prev => [...prev, newBooking]);
-    setToast({ message: `Booking confirmed — ${ref}`, type: "success" });
-    setShowNewBooking(false);
-    setNewForm({ customerId: "", customerName: "", customerQuery: "", instructorId: "i1", date: "", time: "", duration: "60" });
-    setCustomerSuggestions([]);
+    const BG_RGB: Record<string, [number, number, number]> = {
+      i1:  [219, 234, 254], i2:  [243, 232, 255], i3:  [220, 252, 231], i5:  [255, 228, 230],
+      i6:  [255, 237, 213], i7:  [207, 250, 254], i8:  [254, 243, 199], i9:  [224, 231, 255],
+      i10: [204, 251, 241], i11: [252, 231, 243],
+    };
+
+    // Build instructor column map from the visible bookings (mirrors UI logic)
+    const instrMap = new Map<string, string>();
+    filteredTodayBookings.forEach(b => instrMap.set(b.instructorId, b.instructorName));
+    const instrList = Array.from(instrMap.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+    const numCols = Math.max(1, instrList.length);
+    const colIdx = new Map(instrList.map(([id], i) => [id, i]));
+    const colW = contentW / numCols;
+
+    // ── Title ──────────────────────────────────────────────────────────────
+    const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(10);
+    pdf.setTextColor(33, 37, 41);
+    pdf.text(`DSA Daily Schedule — ${dateStr}`, margin, margin + 4);
+
+    // ── Coach legend (only instructors visible in current filter) ──────────
+    let lx = margin;
+    let legendY = margin + 9;
+    instrList.forEach(([id, name], idx) => {
+      if (idx > 0 && idx % 5 === 0) { lx = margin; legendY += 6; }
+      const ac = ACCENT_RGB[id] || [156, 163, 175] as [number, number, number];
+      pdf.setFillColor(ac[0], ac[1], ac[2]);
+      pdf.circle(lx + 1.5, legendY - 1.2, 1.5, "F");
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(7);
+      pdf.setTextColor(80, 80, 80);
+      pdf.text(name, lx + 4.5, legendY - 0.2);
+      lx += 46;
+    });
+
+    // ── Schedule grid ──────────────────────────────────────────────────────
+    const gridY = legendY + 8;
+    const gridH = pageH - gridY - margin;
+    const slotH = gridH / TIME_SLOTS.length;
+
+    // Vertical column dividers
+    pdf.setDrawColor(209, 213, 219);
+    pdf.setLineWidth(0.3);
+    for (let c = 0; c <= numCols; c++) {
+      const cx = contentX + c * colW;
+      pdf.line(cx, gridY, cx, gridY + gridH);
+    }
+
+    // Time labels + horizontal grid lines
+    TIME_SLOTS.forEach((slot, idx) => {
+      const y = gridY + idx * slotH;
+      pdf.setDrawColor(229, 231, 235);
+      pdf.setLineWidth(0.1);
+      pdf.line(contentX, y, contentX + contentW, y);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(6);
+      pdf.setTextColor(108, 117, 125);
+      pdf.text(formatTime(slot), margin, y + slotH * 0.55);
+    });
+
+    // ── Booking cards — same column logic as UI ────────────────────────────
+    filteredTodayBookings.forEach(b => {
+      const ci = colIdx.get(b.instructorId) ?? 0;
+      const slotIndex = (timeToMins(b.startTime) - 9 * 60) / 30;
+      const cardY = gridY + slotIndex * slotH + 0.4;
+      const cardH = (b.durationMinutes / 30) * slotH - 0.8;
+      const cardX = contentX + ci * colW + 0.5;
+      const cardW = colW - 1;
+
+      const bg = BG_RGB[b.instructorId] || [243, 244, 246] as [number, number, number];
+      const accent = ACCENT_RGB[b.instructorId] || [156, 163, 175] as [number, number, number];
+
+      // Card fill + border
+      pdf.setFillColor(bg[0], bg[1], bg[2]);
+      pdf.setDrawColor(bg[0] - 20, bg[1] - 20, bg[2] - 20);
+      pdf.setLineWidth(0.15);
+      pdf.rect(cardX, cardY, cardW, cardH, "FD");
+
+      // Left accent stripe
+      pdf.setFillColor(accent[0], accent[1], accent[2]);
+      pdf.rect(cardX, cardY, 1.5, cardH, "F");
+
+      const textX = cardX + 3;
+      const fs = Math.min(7.5, Math.max(5, slotH * 0.42));
+      const lineH = fs * 0.3528 * 1.4;
+      const line1Y = cardY + lineH * 0.6 + lineH;
+      const line2Y = line1Y + lineH;
+      const maxW = cardW - 4;
+
+      const fitText = (text: string, fontSize: number): string => {
+        pdf.setFontSize(fontSize);
+        if (pdf.getTextWidth(text) <= maxW) return text;
+        let t = text;
+        while (t.length > 1 && pdf.getTextWidth(t.slice(0, -1) + "…") > maxW) t = t.slice(0, -1);
+        return t + "…";
+      };
+
+      // Line 1: coach name · duration (bold — matches UI top line)
+      if (line1Y < cardY + cardH) {
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(fs);
+        pdf.setTextColor(33, 37, 41);
+        pdf.text(fitText(`${b.instructorName} · ${b.durationMinutes} mins`, fs), textX, line1Y);
+      }
+
+      // Line 2: trainee name (matches UI second line)
+      if (line2Y < cardY + cardH) {
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(fs - 0.5);
+        pdf.setTextColor(90, 90, 90);
+        pdf.text(fitText(`${b.customerName}${b.isRecurring ? " 🔁" : ""}`, fs - 0.5), textX, line2Y);
+      }
+    });
+
+    pdf.save(`DSA-schedule-${new Date().toISOString().slice(0, 10)}.pdf`);
   }
 
   const stats = [
-    { label: "Bookings This Week", value: weekBookings.length },
+    { label: "Bookings Today", value: todayBookings.length },
     { label: "Active Customers", value: MOCK_CUSTOMERS.filter(c => c.isActive).length },
     { label: "Active Instructors", value: MOCK_INSTRUCTORS.filter(i => i.isActive).length },
-    { label: "Lanes Active", value: LANE_CONFIG.totalActiveLanes },
   ];
 
   return (
@@ -170,15 +294,8 @@ export default function AdminDashboard() {
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-[#212529]">Dashboard</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <button onClick={prevWeek} className="btn-secondary px-2 py-0.5 text-sm leading-none">←</button>
-            <span className="text-sm text-[#6c757d]">Week of {formatWeekRange(weekStart)}</span>
-            <button onClick={nextWeek} className="btn-secondary px-2 py-0.5 text-sm leading-none">→</button>
-          </div>
-        </div>
-        <button onClick={() => setShowNewBooking(true)} className="btn-primary">+ New Booking</button>
+        <h1 className="text-2xl font-bold text-[#212529]">Today's Bookings</h1>
+        <button onClick={handleExportPDF} className="btn-secondary text-sm">↓ Download Schedule</button>
       </div>
 
       {/* Stats */}
@@ -192,7 +309,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Filter */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <label className="text-sm font-medium text-[#6c757d]">Instructor:</label>
         <select
           value={instructorFilter}
@@ -204,96 +321,139 @@ export default function AdminDashboard() {
             <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>
           ))}
         </select>
+        <div className="flex items-center gap-4 ml-2">
+          {activeInstructors.filter(i => INSTRUCTOR_ACCENT[i.id]).map(i => (
+            <span key={i.id} className="flex items-center gap-1.5 text-xs text-[#6c757d]">
+              <span
+                className={`w-5 h-3.5 rounded-sm border flex-shrink-0 ${INSTRUCTOR_COLORS[i.id]}`}
+                style={{ borderLeftColor: INSTRUCTOR_ACCENT[i.id], borderLeftWidth: 3 }}
+              />
+              {i.firstName} {i.lastName}
+            </span>
+          ))}
+        </div>
       </div>
 
-      {/* Lane Utilization Strip */}
-      <div className="card p-4 mb-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-[#212529]">Lane Utilization — Today</h2>
-          <span className="text-xs text-[#6c757d]">{LANE_CONFIG.totalActiveLanes} active lane{LANE_CONFIG.totalActiveLanes !== 1 ? "s" : ""}</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="text-[10px] min-w-max">
-            <thead>
-              <tr>
-                <th className="text-left pr-3 pb-1 text-[#6c757d] font-medium w-12">Lane</th>
-                {Object.keys(LANE_UTILIZATION).map(slot => {
-                  const [h, m] = slot.split(":").map(Number);
-                  const label = `${h % 12 || 12}${m === 0 ? "" : `:${String(m).padStart(2, "0")}`}${h >= 12 ? "p" : "a"}`;
-                  return (
-                    <th key={slot} className="text-center pb-1 px-0.5 text-[#6c757d] font-normal w-8">{label}</th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: LANE_CONFIG.totalActiveLanes }, (_, laneIdx) => (
-                <tr key={laneIdx}>
-                  <td className="pr-3 py-0.5 text-[#6c757d] font-semibold whitespace-nowrap">Lane {laneIdx + 1}</td>
-                  {Object.entries(LANE_UTILIZATION).map(([slot, { used, total }]) => {
-                    const occupied = laneIdx < used;
-                    const allFull = used >= total;
-                    const bg = occupied ? (allFull ? "#f33b41" : "#337C99") : "#f3f4f6";
+      <div className="card overflow-hidden">
+          <div className="flex overflow-x-auto">
+            {/* Time labels — sticky so they stay visible on horizontal scroll */}
+            <div className="flex-shrink-0 border-r border-gray-200 sticky left-0 bg-white z-10"
+              style={{ width: 80, height: TIME_SLOTS.length * SLOT_HEIGHT }}>
+              {TIME_SLOTS.map(slot => (
+                <div
+                  key={slot}
+                  className="border-b border-gray-100 px-3 text-xs text-[#6c757d] font-mono flex items-start pt-1.5"
+                  style={{ height: SLOT_HEIGHT }}
+                >
+                  {formatTime(slot)}
+                </div>
+              ))}
+            </div>
+
+            {/* Booking area — min 120px per instructor column, scrolls horizontally */}
+            {(() => {
+              const instrMap = new Map<string, string>();
+              filteredTodayBookings.forEach(b => instrMap.set(b.instructorId, b.instructorName));
+              const instrList = Array.from(instrMap.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+              const numCols = Math.max(1, instrList.length);
+              const colIdx = new Map(instrList.map(([id], i) => [id, i]));
+              const MIN_COL_W = 120;
+              return (
+                <div className="relative flex-1" style={{ minWidth: numCols * MIN_COL_W, height: TIME_SLOTS.length * SLOT_HEIGHT }}>
+                  {TIME_SLOTS.map((slot, i) => (
+                    <div key={slot} className="absolute w-full border-b border-gray-100"
+                      style={{ top: i * SLOT_HEIGHT, height: SLOT_HEIGHT }} />
+                  ))}
+                  {filteredTodayBookings.map(b => {
+                    const ci = colIdx.get(b.instructorId) ?? 0;
                     return (
-                      <td key={slot} className="px-0.5 py-0.5">
-                        <div
-                          className="rounded h-5 w-7"
-                          style={{ backgroundColor: bg }}
-                          title={`${slot} Lane ${laneIdx + 1}: ${occupied ? "Occupied" : "Free"}`}
-                        />
-                      </td>
+                      <button
+                        key={b.id}
+                        onClick={() => { setSelectedBooking(b); setCancelScope("single"); }}
+                        className={`absolute rounded border text-xs text-left overflow-hidden px-2 py-1 ${INSTRUCTOR_COLORS[b.instructorId] || "bg-gray-100 border-gray-300 text-gray-700"}`}
+                        style={{
+                          top: timeToTop(b.startTime) + 2,
+                          height: (b.durationMinutes / 30) * SLOT_HEIGHT - 4,
+                          left: `calc(${(ci / numCols) * 100}% + 4px)`,
+                          width: `calc(${(1 / numCols) * 100}% - 8px)`,
+                          borderLeftColor: INSTRUCTOR_ACCENT[b.instructorId] || "#9ca3af",
+                          borderLeftWidth: 4,
+                        }}
+                      >
+                        <div className="font-bold leading-tight underline">{b.instructorName} · {b.durationMinutes} mins</div>
+                        <div className="opacity-80 leading-tight text-[11px] mt-0.5">
+                          {b.customerName}{b.isRecurring && " 🔁"}
+                        </div>
+                      </button>
                     );
                   })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex gap-4 mt-3 text-[10px] text-[#6c757d]">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: "#337C99" }} />Occupied</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: "#f33b41" }} />Full (all lanes)</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: "#f3f4f6", border: "1px solid #e5e7eb" }} />Available</span>
-        </div>
+                </div>
+              );
+            })()}
+          </div>
       </div>
 
-      {/* Calendar */}
-      <div className="card overflow-x-auto">
-        <table className="w-full text-xs min-w-[700px]">
-          <thead>
-            <tr className="border-b border-gray-200">
-              <th className="text-left px-3 py-2.5 text-[#6c757d] font-medium w-16">Time</th>
-              {days.map(d => (
-                <th key={d.date} className="px-2 py-2.5 text-[#6c757d] font-medium text-center">{d.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {TIME_SLOTS.map(slot => (
-              <tr key={slot} className="border-b border-gray-100 hover:bg-gray-50/50">
-                <td className="px-3 py-1.5 text-[#6c757d] font-mono text-xs whitespace-nowrap">{formatTime(slot)}</td>
-                {days.map(d => {
-                  const slotBookings = getBookingsForSlot(d.date, slot);
-                  return (
-                    <td key={d.date} className="px-1 py-1 align-top">
-                      {slotBookings.map(b => (
-                        <button
-                          key={b.id}
-                          onClick={() => { setSelectedBooking(b); setCancelScope("single"); }}
-                          className={`w-full text-left px-1.5 py-0.5 rounded border text-xs mb-0.5 truncate ${INSTRUCTOR_COLORS[b.instructorId] || "bg-gray-100 border-gray-300 text-gray-700"}`}
-                        >
-                          {b.customerName.split(" ")[0]} · {b.durationMinutes}m
-                          {b.isWalkIn && " 🚶"}
-                          {b.isRecurring && " 🔁"}
-                        </button>
-                      ))}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Reschedule Modal */}
+      {editBooking && (
+        <Modal title={`Reschedule Booking ${editBooking.bookingReference}`} onClose={() => setEditBooking(null)}
+          footer={
+            <>
+              <button onClick={() => setEditBooking(null)} className="btn-secondary">Cancel</button>
+              <button form="reschedule-form" type="submit" className="btn-primary">Save Changes</button>
+            </>
+          }
+        >
+          <form id="reschedule-form" onSubmit={handleEdit} className="space-y-4">
+            {editBooking.isRecurring && (
+              <div className="space-y-2">
+                <label className="label">Apply changes to</label>
+                {(["single", "series"] as const).map(scope => (
+                  <label key={scope} className="flex items-center gap-3 cursor-pointer p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50">
+                    <input type="radio" checked={rescheduleScope === scope} onChange={() => setRescheduleScope(scope)} />
+                    <div>
+                      <p className="font-medium text-[#212529] text-sm">
+                        {scope === "single" ? "This session only" : "All upcoming sessions in this series"}
+                      </p>
+                      <p className="text-xs text-[#6c757d]">
+                        {scope === "single"
+                          ? "Only this booking will be updated. Other sessions in the series stay as scheduled."
+                          : "Time, instructor, and duration will update for all future sessions. Each session keeps its original date."}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">
+                  Date{rescheduleScope === "series" && <span className="text-[#6c757d] font-normal"> (this session only)</span>}
+                </label>
+                <input className="input" type="date" required value={editForm.date} disabled={rescheduleScope === "series"} onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label">Time</label>
+                <select className="input" required value={editForm.time} onChange={e => setEditForm(f => ({ ...f, time: e.target.value }))}>
+                  {TIME_SLOTS.map(slot => <option key={slot} value={slot}>{formatTime(slot)}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="label">Instructor</label>
+              <select className="input" value={editForm.instructorId} onChange={e => setEditForm(f => ({ ...f, instructorId: e.target.value }))}>
+                {activeInstructors.map(i => <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Duration</label>
+              <select className="input" value={editForm.duration} onChange={e => setEditForm(f => ({ ...f, duration: e.target.value }))}>
+                <option value="30">30 minutes</option>
+                <option value="60">60 minutes</option>
+              </select>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {/* Booking Detail Modal */}
       {selectedBooking && (
@@ -303,106 +463,61 @@ export default function AdminDashboard() {
           footer={
             <>
               <button onClick={() => setSelectedBooking(null)} className="btn-secondary">Close</button>
-              <button onClick={handleCancelBooking} className="btn-danger">Cancel Booking</button>
+              <button onClick={() => openEdit(selectedBooking)} className="btn-secondary">Reschedule</button>
+              {!cancelScope.startsWith("confirm") ? (
+                <button
+                  onClick={() => selectedBooking.isRecurring ? setCancelScope("confirm-single") : handleCancelBooking()}
+                  className="btn-danger"
+                >
+                  Cancel Booking
+                </button>
+              ) : (
+                <button onClick={handleCancelBooking} className="btn-danger">Confirm Cancel</button>
+              )}
             </>
           }
         >
           <div className="space-y-3 text-sm">
             <Row label="Customer" value={selectedBooking.customerName} />
             <Row label="Instructor" value={selectedBooking.instructorName} />
-            <Row label="Date" value={selectedBooking.date} />
+            <Row label="Date" value={formatDate(selectedBooking.date)} />
             <Row label="Time" value={`${formatTime(selectedBooking.startTime)} – ${formatTime(selectedBooking.endTime)}`} />
             <Row label="Duration" value={`${selectedBooking.durationMinutes} min`} />
             {selectedBooking.isForChild && (
               <Row label="Child" value={`Age ${selectedBooking.childAge} (${selectedBooking.relationshipToCustomer})`} />
             )}
-            {selectedBooking.isWalkIn && <span className="badge-orange">Walk-in</span>}
-            {selectedBooking.isRecurring && (
-              <div className="pt-2 border-t border-gray-100">
-                <p className="font-medium text-[#212529] mb-2">Recurring Series</p>
-                <div className="flex gap-3">
-                  {(["single", "series"] as const).map(scope => (
-                    <label key={scope} className="flex items-center gap-2 cursor-pointer">
+            <div className="flex gap-1 flex-wrap pt-1">
+              {selectedBooking.isRecurring
+                ? <span className="badge-blue">Recurring series</span>
+                : <span className="badge-orange" style={{ color: "#131313" }}>Single-session</span>}
+              {selectedBooking.isForChild && <span className="badge-purple">Child</span>}
+            </div>
+            {selectedBooking.isRecurring && cancelScope.startsWith("confirm") && (
+              <div className="pt-2 border-t border-gray-100 space-y-2">
+                <p className="font-medium text-[#212529]">What would you like to cancel?</p>
+                <div className="flex flex-col gap-2">
+                  {(["confirm-single", "confirm-series"] as const).map(scope => (
+                    <label key={scope} className="flex items-center gap-3 cursor-pointer p-2 rounded-lg border border-gray-200 hover:bg-gray-50">
                       <input type="radio" checked={cancelScope === scope} onChange={() => setCancelScope(scope)} />
-                      <span>{scope === "single" ? "Cancel this session" : "Cancel entire series"}</span>
+                      <div>
+                        <p className="font-medium text-[#212529] text-sm">
+                          {scope === "confirm-single" ? "This session only" : "All sessions in this series"}
+                        </p>
+                        <p className="text-xs text-[#6c757d]">
+                          {scope === "confirm-single"
+                            ? `Cancels the ${formatDate(selectedBooking.date)} session. Future sessions continue as scheduled.`
+                            : "Cancels this and all remaining upcoming sessions in the series."}
+                        </p>
+                      </div>
                     </label>
                   ))}
                 </div>
-                {cancelScope === "series" && (
-                  <p className="text-xs text-red-600 mt-2">All upcoming sessions in this series will be cancelled.</p>
-                )}
               </div>
             )}
           </div>
         </Modal>
       )}
 
-      {/* New Booking Modal */}
-      {showNewBooking && (
-        <Modal title="New Booking" onClose={() => setShowNewBooking(false)}
-          footer={
-            <>
-              <button onClick={() => setShowNewBooking(false)} className="btn-secondary">Cancel</button>
-              <button form="new-booking-form" type="submit" className="btn-primary">Confirm</button>
-            </>
-          }
-        >
-          <form id="new-booking-form" onSubmit={handleNewBooking} className="space-y-4">
-            <div className="relative">
-              <label className="label">Customer</label>
-              <input
-                className="input"
-                required
-                autoComplete="off"
-                value={newForm.customerQuery}
-                onChange={e => handleCustomerSearch(e.target.value)}
-                placeholder="Search by name or email…"
-              />
-              {customerSuggestions.length > 0 && (
-                <div className="absolute z-10 top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 overflow-hidden">
-                  {customerSuggestions.map(c => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => selectCustomer(c)}
-                      className="w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-0"
-                    >
-                      <p className="text-sm font-medium text-[#212529]">{c.firstName} {c.lastName}</p>
-                      <p className="text-xs text-[#6c757d]">{c.email}</p>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {newForm.customerId && (
-                <p className="text-xs text-green-600 mt-1">Existing customer selected</p>
-              )}
-            </div>
-            <div>
-              <label className="label">Instructor</label>
-              <select className="input" value={newForm.instructorId} onChange={e => setNewForm(f => ({ ...f, instructorId: e.target.value }))}>
-                {activeInstructors.map(i => <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>)}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Date</label>
-                <input className="input" type="date" required value={newForm.date} onChange={e => setNewForm(f => ({ ...f, date: e.target.value }))} />
-              </div>
-              <div>
-                <label className="label">Time</label>
-                <input className="input" type="time" required value={newForm.time} onChange={e => setNewForm(f => ({ ...f, time: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <label className="label">Duration</label>
-              <select className="input" value={newForm.duration} onChange={e => setNewForm(f => ({ ...f, duration: e.target.value }))}>
-                <option value="30">30 minutes</option>
-                <option value="60">60 minutes</option>
-              </select>
-            </div>
-          </form>
-        </Modal>
-      )}
     </div>
   );
 }

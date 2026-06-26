@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DSA Modern Prototype — Project Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --sidebar-w: 268px;
+    --accent: #337C99;
+    --accent-light: #e8f4f8;
+    --danger: #b6070e;
+    --dark: #0f172a;
+    --body: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+    --code-bg: #0f172a;
+    --code-text: #e2e8f0;
+    --surface: #f8fafc;
+    --white: #ffffff;
+  }
+  html { scroll-behavior: smooth; font-size: 15px; }
+  body { font-family: 'Inter', sans-serif; color: var(--body); background: var(--white); display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: var(--sidebar-w); flex-shrink: 0; background: var(--dark);
+    position: fixed; top: 0; left: 0; height: 100vh;
+    overflow-y: auto; display: flex; flex-direction: column;
+    scrollbar-width: thin; scrollbar-color: #334155 transparent;
+  }
+  #sidebar::-webkit-scrollbar { width: 4px; }
+  #sidebar::-webkit-scrollbar-track { background: transparent; }
+  #sidebar::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+  .sidebar-header {
+    padding: 24px 20px 16px; border-bottom: 1px solid #1e293b;
+    position: sticky; top: 0; background: var(--dark); z-index: 1;
+  }
+  .sidebar-logo { color: var(--accent); font-weight: 700; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .sidebar-subtitle { color: #475569; font-size: 11px; margin-top: 3px; }
+  .sidebar-search {
+    margin: 12px 16px 8px;
+    padding: 7px 10px; border-radius: 6px;
+    background: #1e293b; border: 1px solid #334155;
+    color: #94a3b8; font-size: 12px; font-family: inherit;
+    width: calc(100% - 32px); outline: none;
+  }
+  .sidebar-search::placeholder { color: #475569; }
+  .sidebar-search:focus { border-color: var(--accent); }
+  nav { padding: 8px 0 24px; }
+  .nav-group { margin-bottom: 4px; }
+  .nav-group-label {
+    padding: 10px 20px 4px; font-size: 10px; font-weight: 600;
+    color: #475569; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .nav-link {
+    display: block; padding: 6px 20px; font-size: 12.5px; color: #94a3b8;
+    text-decoration: none; border-left: 2px solid transparent;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .nav-link:hover { color: #e2e8f0; background: #1e293b; }
+  .nav-link.active { color: #fff; background: #1e293b; border-left-color: var(--accent); }
+  .nav-link.sub { padding-left: 32px; font-size: 12px; color: #64748b; }
+  .nav-link.sub:hover { color: #94a3b8; }
+  .nav-link.sub.active { color: #cbd5e1; border-left-color: #475569; }
+
+  /* ── Main content ── */
+  #main { margin-left: var(--sidebar-w); flex: 1; min-height: 100vh; }
+  .top-bar {
+    position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+    padding: 12px 48px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .top-bar-title { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .top-bar-badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    background: var(--accent-light); color: var(--accent); font-weight: 600;
+  }
+  .content { max-width: 900px; margin: 0 auto; padding: 48px 48px 96px; }
+
+  /* ── Section headings ── */
+  .section { margin-bottom: 64px; }
+  h1.page-title { font-size: 32px; font-weight: 700; color: var(--dark); margin-bottom: 8px; line-height: 1.2; }
+  .page-desc { font-size: 15px; color: var(--muted); line-height: 1.6; margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+  h2.section-title {
+    font-size: 22px; font-weight: 700; color: var(--dark); margin-bottom: 16px;
+    padding-bottom: 10px; border-bottom: 2px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2.section-title .section-icon { font-size: 18px; }
+  h3.sub-title { font-size: 16px; font-weight: 600; color: var(--dark); margin: 24px 0 10px; }
+  h4.mini-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 20px 0 8px; }
+  p { color: var(--body); line-height: 1.7; margin-bottom: 12px; font-size: 14px; }
+  ul, ol { padding-left: 20px; margin-bottom: 12px; }
+  li { font-size: 14px; line-height: 1.7; color: var(--body); }
+
+  /* ── Code blocks ── */
+  pre {
+    background: var(--code-bg); color: var(--code-text);
+    border-radius: 8px; padding: 20px; overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+    line-height: 1.6; margin: 12px 0 20px; border: 1px solid #1e293b;
+  }
+  code {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    background: #f1f5f9; color: #0f172a; padding: 2px 6px; border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  pre code { background: none; color: inherit; padding: 0; border: none; font-size: inherit; }
+  .kw { color: #93c5fd; }
+  .str { color: #86efac; }
+  .cm { color: #475569; font-style: italic; }
+  .fn { color: #fde68a; }
+  .type { color: #f9a8d4; }
+  .num { color: #fb923c; }
+  .prop { color: #67e8f9; }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; margin: 12px 0 20px; border-radius: 8px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--surface); }
+  th { padding: 10px 14px; text-align: left; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top; line-height: 1.5; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface); }
+
+  /* ── Callout boxes ── */
+  .callout {
+    padding: 14px 16px; border-radius: 8px; font-size: 13.5px;
+    line-height: 1.6; margin: 12px 0 20px; display: flex; gap: 10px;
+  }
+  .callout-icon { flex-shrink: 0; font-size: 16px; margin-top: 1px; }
+  .callout.info { background: #eff6ff; border-left: 3px solid #3b82f6; color: #1e40af; }
+  .callout.warning { background: #fffbeb; border-left: 3px solid #f59e0b; color: #92400e; }
+  .callout.danger { background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b; }
+  .callout.success { background: #f0fdf4; border-left: 3px solid #22c55e; color: #15803d; }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 500;
+    white-space: nowrap;
+  }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-green { background: #dcfce7; color: #15803d; }
+  .badge-orange { background: #ffedd5; color: #c2410c; }
+  .badge-purple { background: #f3e8ff; color: #7e22ce; }
+  .badge-red { background: #fee2e2; color: #dc2626; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+  .badge-teal { background: #ccfbf1; color: #0f766e; }
+  .badge-yellow { background: #fef9c3; color: #a16207; }
+
+  /* ── Color swatches ── */
+  .color-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin: 12px 0 20px; }
+  .color-swatch { border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .swatch-block { height: 56px; }
+  .swatch-info { padding: 8px 10px; background: var(--white); }
+  .swatch-name { font-size: 12px; font-weight: 600; color: var(--dark); }
+  .swatch-hex { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+  .swatch-usage { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+
+  /* ── Instructor palette ── */
+  .instructor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 12px 0 20px; }
+  .instructor-chip {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-radius: 8px; border: 1px solid var(--border); font-size: 13px;
+  }
+  .instructor-stripe { width: 4px; height: 36px; border-radius: 3px; flex-shrink: 0; }
+  .instructor-info { flex: 1; }
+  .instructor-name { font-weight: 600; color: var(--dark); font-size: 13px; }
+  .instructor-id { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+  .instructor-spec { font-size: 11px; color: var(--muted); }
+
+  /* ── File tree ── */
+  .file-tree { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.8; background: var(--code-bg); color: var(--code-text); border-radius: 8px; padding: 20px; margin: 12px 0 20px; border: 1px solid #1e293b; }
+  .file-tree .dir { color: #93c5fd; }
+  .file-tree .file { color: #e2e8f0; }
+  .file-tree .note { color: #475569; }
+
+  /* ── Step tracker ── */
+  .steps { display: flex; flex-direction: column; gap: 0; margin: 12px 0 20px; }
+  .step { display: flex; gap: 16px; padding-bottom: 20px; position: relative; }
+  .step:not(:last-child)::before { content: ''; position: absolute; left: 15px; top: 36px; bottom: 0; width: 2px; background: var(--border); }
+  .step-num { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-body { flex: 1; padding-top: 5px; }
+  .step-title { font-weight: 600; font-size: 14px; color: var(--dark); margin-bottom: 4px; }
+  .step-desc { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  /* ── Route list ── */
+  .route-item { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-bottom: 1px solid #f8fafc; }
+  .route-path { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--accent); min-width: 220px; flex-shrink: 0; }
+  .route-desc { font-size: 13px; color: var(--muted); }
+
+  /* ── Admin page cards ── */
+  .admin-card { border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 14px; }
+  .admin-card-title { font-weight: 600; font-size: 14px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .admin-card-desc { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  /* ── Dividers ── */
+  .divider { height: 1px; background: var(--border); margin: 32px 0; }
+  .scroll-top {
+    position: fixed; bottom: 32px; right: 32px; width: 40px; height: 40px;
+    background: var(--accent); color: #fff; border: none; border-radius: 50%;
+    font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 12px rgba(51,124,153,0.35); opacity: 0; transition: opacity 0.2s;
+    text-decoration: none;
+  }
+  .scroll-top.visible { opacity: 1; }
+
+  /* ── Print / accessibility ── */
+  @media print {
+    #sidebar { display: none; }
+    #main { margin-left: 0; }
+    .top-bar { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ SIDEBAR ═══ -->
+<aside id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">⬡ DSA Prototype</div>
+    <div class="sidebar-subtitle">Project Documentation · v1.0</div>
+  </div>
+  <input class="sidebar-search" id="navSearch" type="text" placeholder="Search sections…" autocomplete="off" />
+  <nav id="navTree">
+    <div class="nav-group">
+      <div class="nav-group-label">Getting Started</div>
+      <a class="nav-link" href="#overview">Overview</a>
+      <a class="nav-link" href="#tech-stack">Tech Stack</a>
+      <a class="nav-link" href="#dev-commands">Dev Commands</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Architecture</div>
+      <a class="nav-link" href="#file-structure">File Structure</a>
+      <a class="nav-link" href="#routing">Routing</a>
+      <a class="nav-link" href="#data-flow">Data Flow</a>
+      <a class="nav-link" href="#middleware">Middleware &amp; Auth</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Design System</div>
+      <a class="nav-link" href="#brand-colors">Brand Colors</a>
+      <a class="nav-link" href="#typography">Typography</a>
+      <a class="nav-link" href="#layout-conventions">Layout Conventions</a>
+      <a class="nav-link" href="#custom-classes">Custom CSS Classes</a>
+      <a class="nav-link" href="#instructor-colors">Instructor Color Palette</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Public Site</div>
+      <a class="nav-link" href="#public-routes">All Routes</a>
+      <a class="nav-link" href="#home-page">Home Page</a>
+      <a class="nav-link" href="#service-pages">Service Pages</a>
+      <a class="nav-link" href="#booking-wizard">Booking Wizard</a>
+      <a class="nav-link" href="#cancellation">Cancellation Page</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Shared Components</div>
+      <a class="nav-link" href="#header">Header</a>
+      <a class="nav-link" href="#footer">Footer</a>
+      <a class="nav-link" href="#service-page-layout">ServicePageLayout</a>
+      <a class="nav-link" href="#modal-toast">Modal &amp; Toast</a>
+      <a class="nav-link" href="#testimonials-cta">Testimonials &amp; CTA</a>
+      <a class="nav-link" href="#inline-contact">InlineContactForm</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Admin Panel</div>
+      <a class="nav-link" href="#admin-auth">Authentication</a>
+      <a class="nav-link" href="#admin-layout">Layout &amp; Sidebar</a>
+      <a class="nav-link" href="#admin-dashboard">Today's Schedule</a>
+      <a class="nav-link" href="#admin-bookings">Manage Bookings</a>
+      <a class="nav-link" href="#admin-customers">Customers</a>
+      <a class="nav-link" href="#admin-instructors">Instructors</a>
+      <a class="nav-link" href="#admin-schedule">Schedule Config</a>
+      <a class="nav-link" href="#admin-waitlist">Waitlist</a>
+      <a class="nav-link" href="#admin-reports">Reports</a>
+      <a class="nav-link" href="#admin-notifications">Notifications</a>
+      <a class="nav-link" href="#admin-settings">Settings</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Mock Data Layer</div>
+      <a class="nav-link" href="#data-strategy">Generation Strategy</a>
+      <a class="nav-link" href="#data-bookings">Bookings</a>
+      <a class="nav-link" href="#data-customers">Customers</a>
+      <a class="nav-link" href="#data-instructors">Instructors</a>
+      <a class="nav-link" href="#data-schedule">Schedule</a>
+      <a class="nav-link" href="#data-waitlist">Waitlist</a>
+      <a class="nav-link" href="#data-notifications">Notifications</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Deployment</div>
+      <a class="nav-link" href="#deployment">Cloudflare Pages</a>
+      <a class="nav-link" href="#git-history">Git History</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-label">Reference</div>
+      <a class="nav-link" href="#business-info">Business Info</a>
+      <a class="nav-link" href="#limitations">Prototype Limitations</a>
+    </div>
+  </nav>
+</aside>
+
+<!-- ════════════════════════════════════════════════════ MAIN CONTENT ═══ -->
+<div id="main">
+  <div class="top-bar">
+    <span class="top-bar-title">The Diamond Sports Academy — Modern Prototype</span>
+    <span class="top-bar-badge">feature/deployCloudflare</span>
+  </div>
+  <div class="content">
+
+    <!-- HERO -->
+    <h1 class="page-title">DSA Modern Prototype</h1>
+    <p class="page-desc">
+      A Next.js 14 (App Router) prototype redesign of <strong>thediamondsportsacademy.com</strong> — an elite youth baseball training facility in Odenton, MD.
+      This is a UI/UX prototype: all data is mock-generated, there is no real database, payment processing, or email delivery.
+      This document covers every aspect of the project — architecture, design, data, admin panel, and deployment.
+    </p>
+
+    <!-- ══════════════════════════════════════════ OVERVIEW ══ -->
+    <div class="section" id="overview">
+      <h2 class="section-title"><span class="section-icon">🏟</span> Overview</h2>
+      <p>The Diamond Sports Academy (DSA) is a real business. This repository is a prototype replacement for their existing WordPress site, built to demonstrate a modern UX and admin panel before production development begins.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Property</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Repository type</td><td>Next.js 14 App Router — static export target</td></tr>
+            <tr><td>Purpose</td><td>UI/UX prototype — no real backend integrations</td></tr>
+            <tr><td>Current branch</td><td><code>feature/deployCloudflare</code></td></tr>
+            <tr><td>Deployment target</td><td>Cloudflare Pages</td></tr>
+            <tr><td>Existing live site</td><td>thediamondsportsacademy.com (WordPress)</td></tr>
+            <tr><td>Dev server port</td><td>4000</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ TECH STACK ══ -->
+    <div class="section" id="tech-stack">
+      <h2 class="section-title"><span class="section-icon">⚙️</span> Tech Stack</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Layer</th><th>Technology</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Framework</td><td>Next.js 14 (App Router)</td><td>Server + client components mixed</td></tr>
+            <tr><td>Language</td><td>TypeScript</td><td>Strict types throughout</td></tr>
+            <tr><td>Styling</td><td>Tailwind CSS v3 + <code>globals.css</code></td><td>Inline <code>style={{}}</code> for brand colors</td></tr>
+            <tr><td>Fonts</td><td>Inter + Figtree</td><td><code>next/font/google</code> — CSS vars <code>--font-inter</code> / <code>--font-figtree</code></td></tr>
+            <tr><td>Icons</td><td>lucide-react (admin only)</td><td>Inline SVGs on public pages</td></tr>
+            <tr><td>Images</td><td><code>next/image</code></td><td>Never bare <code>&lt;img&gt;</code> tags</td></tr>
+            <tr><td>Date handling</td><td>date-fns</td><td>ISO 8601 storage, mm-dd-yyyy display</td></tr>
+            <tr><td>Utilities</td><td>clsx</td><td>Rarely used — template literals preferred</td></tr>
+            <tr><td>State management</td><td>Local <code>useState</code> only</td><td>No Redux / Zustand / Context</td></tr>
+            <tr><td>PDF export</td><td>jsPDF (dynamic import)</td><td>Used in Today's Schedule only</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DEV COMMANDS ══ -->
+    <div class="section" id="dev-commands">
+      <h2 class="section-title"><span class="section-icon">💻</span> Dev Commands</h2>
+      <pre><code><span class="cm"># Start dev server on http://localhost:4000</span>
+npm run dev
+
+<span class="cm"># Static export → /out directory</span>
+npm run build
+
+<span class="cm"># Lint</span>
+npm run lint
+
+<span class="cm"># Type check only (no emit)</span>
+npx tsc --noEmit</code></pre>
+    </div>
+
+    <!-- ══════════════════════════════════════════ FILE STRUCTURE ══ -->
+    <div class="section" id="file-structure">
+      <h2 class="section-title"><span class="section-icon">📁</span> File Structure</h2>
+      <div class="file-tree">
+<span class="dir">src/</span>
+  <span class="dir">app/</span>                         <span class="note"># Next.js App Router pages</span>
+    <span class="file">layout.tsx</span>               <span class="note"># Root layout — fonts, metadata, Header + Footer</span>
+    <span class="file">page.tsx</span>                 <span class="note"># Home page (large, self-contained)</span>
+    <span class="file">globals.css</span>              <span class="note"># Brand CSS vars + custom utility classes</span>
+    <span class="dir">api/admin/auth/</span>
+      <span class="file">route.ts</span>               <span class="note"># Only API route — login/logout cookie</span>
+    <span class="dir">admin/</span>                     <span class="note"># Protected by middleware</span>
+      <span class="file">layout.tsx</span>
+      <span class="file">page.tsx</span>               <span class="note"># Today's Schedule dashboard</span>
+      <span class="file">login/page.tsx</span>
+      <span class="file">bookings/page.tsx</span>
+      <span class="file">customers/page.tsx</span>
+      <span class="file">instructors/page.tsx</span>
+      <span class="file">waitlist/page.tsx</span>
+      <span class="file">schedule/page.tsx</span>
+      <span class="file">reports/page.tsx</span>
+      <span class="file">notifications/page.tsx</span>
+      <span class="file">settings/page.tsx</span>
+    <span class="file">book/page.tsx</span>            <span class="note"># 5-step booking wizard</span>
+    <span class="file">cancel/[ref]/page.tsx</span>    <span class="note"># Booking cancellation by token</span>
+    <span class="file">[service]/page.tsx</span>       <span class="note"># Catch-all for all service/marketing pages</span>
+  <span class="dir">components/</span>
+    <span class="file">Header.tsx</span>               <span class="note"># Fixed nav, transparent→scrolled, mobile drawer</span>
+    <span class="file">Footer.tsx</span>               <span class="note"># 4-column footer</span>
+    <span class="file">ServicePageLayout.tsx</span>    <span class="note"># Reusable template for all service pages</span>
+    <span class="file">AdminSidebar.tsx</span>         <span class="note"># Admin nav sidebar</span>
+    <span class="file">AdminContentArea.tsx</span>     <span class="note"># Admin layout wrapper</span>
+    <span class="file">Testimonials.tsx</span>
+    <span class="file">CtaBanner.tsx</span>
+    <span class="file">InlineContactForm.tsx</span>
+    <span class="file">Modal.tsx</span>
+    <span class="file">Toast.tsx</span>
+  <span class="dir">data/mock/</span>                   <span class="note"># All mock data — no real DB</span>
+    <span class="file">bookings.ts</span>              <span class="note"># ~3 months, ~30/day, deterministic RNG</span>
+    <span class="file">customers.ts</span>             <span class="note"># 150 customers, deterministic RNG</span>
+    <span class="file">instructors.ts</span>           <span class="note"># 10 active + 1 inactive instructors</span>
+    <span class="file">schedule.ts</span>              <span class="note"># Availability patterns, blackouts, lane config</span>
+    <span class="file">waitlist.ts</span>              <span class="note"># 12 weeks of waitlist entries</span>
+    <span class="file">notifications.ts</span>         <span class="note"># Last 30 days, max 300 records</span>
+  <span class="file">middleware.ts</span>                <span class="note"># Protects /admin/* — cookie check</span>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ROUTING ══ -->
+    <div class="section" id="routing">
+      <h2 class="section-title"><span class="section-icon">🗺</span> Routing</h2>
+      <h3 class="sub-title">Public Routes</h3>
+      <div class="route-item"><span class="route-path">/</span><span class="route-desc">Home page</span></div>
+      <div class="route-item"><span class="route-path">/about-us</span><span class="route-desc">About the Academy</span></div>
+      <div class="route-item"><span class="route-path">/our-facility</span><span class="route-desc">Facility overview</span></div>
+      <div class="route-item"><span class="route-path">/our-coaches</span><span class="route-desc">Coaching staff</span></div>
+      <div class="route-item"><span class="route-path">/recruits</span><span class="route-desc">Recruits listing</span></div>
+      <div class="route-item"><span class="route-path">/recruits/[slug]</span><span class="route-desc">Individual recruit profiles (4 profiles)</span></div>
+      <div class="route-item"><span class="route-path">/our-alumni</span><span class="route-desc">Alumni page</span></div>
+      <div class="route-item"><span class="route-path">/training</span><span class="route-desc">Training overview</span></div>
+      <div class="route-item"><span class="route-path">/camps</span><span class="route-desc">Camps program</span></div>
+      <div class="route-item"><span class="route-path">/clinics</span><span class="route-desc">Clinics program</span></div>
+      <div class="route-item"><span class="route-path">/1-on-1-training</span><span class="route-desc">1-on-1 Training</span></div>
+      <div class="route-item"><span class="route-path">/speed-agility</span><span class="route-desc">Speed &amp; Agility</span></div>
+      <div class="route-item"><span class="route-path">/golf-simulator</span><span class="route-desc">Golf Simulator</span></div>
+      <div class="route-item"><span class="route-path">/weight-training</span><span class="route-desc">Weight Training</span></div>
+      <div class="route-item"><span class="route-path">/team-facility-rentals</span><span class="route-desc">Team Facility Rentals</span></div>
+      <div class="route-item"><span class="route-path">/technology-tunnels</span><span class="route-desc">Technology Tunnels (HitTrax, Rapsodo, Blast Motion)</span></div>
+      <div class="route-item"><span class="route-path">/memberships</span><span class="route-desc">Memberships</span></div>
+      <div class="route-item"><span class="route-path">/reviews</span><span class="route-desc">Reviews</span></div>
+      <div class="route-item"><span class="route-path">/frequently-asked-questions</span><span class="route-desc">FAQ</span></div>
+      <div class="route-item"><span class="route-path">/contact-us</span><span class="route-desc">Contact</span></div>
+      <div class="route-item"><span class="route-path">/privacy</span><span class="route-desc">Privacy Policy</span></div>
+      <div class="route-item"><span class="route-path">/book</span><span class="route-desc">5-step booking wizard</span></div>
+      <div class="route-item"><span class="route-path">/cancel/[ref]</span><span class="route-desc">Booking cancellation by token</span></div>
+
+      <h3 class="sub-title">Admin Routes (protected)</h3>
+      <div class="route-item"><span class="route-path">/admin/login</span><span class="route-desc">Login — bypasses middleware</span></div>
+      <div class="route-item"><span class="route-path">/admin</span><span class="route-desc">Today's Schedule dashboard</span></div>
+      <div class="route-item"><span class="route-path">/admin/bookings</span><span class="route-desc">Manage Bookings</span></div>
+      <div class="route-item"><span class="route-path">/admin/customers</span><span class="route-desc">Customer management</span></div>
+      <div class="route-item"><span class="route-path">/admin/instructors</span><span class="route-desc">Instructors + Availability Slots</span></div>
+      <div class="route-item"><span class="route-path">/admin/waitlist</span><span class="route-desc">Waitlist management</span></div>
+      <div class="route-item"><span class="route-path">/admin/schedule</span><span class="route-desc">Operating hours, blackouts, lane config</span></div>
+      <div class="route-item"><span class="route-path">/admin/reports</span><span class="route-desc">Analytics &amp; performance</span></div>
+      <div class="route-item"><span class="route-path">/admin/notifications</span><span class="route-desc">Notification log</span></div>
+      <div class="route-item"><span class="route-path">/admin/settings</span><span class="route-desc">Facility settings</span></div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DATA FLOW ══ -->
+    <div class="section" id="data-flow">
+      <h2 class="section-title"><span class="section-icon">🔄</span> Data Flow</h2>
+      <p>There is no API layer between components and data. Mock data files export typed arrays that are imported directly — identical to how a real app would import from a data-fetching hook, but without the async boundary.</p>
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <div>All mock data is generated deterministically at module load time using a seeded LCG (Linear Congruential Generator) RNG. The same seed always produces the same data. Date-relative data (bookings, availability, notifications) is generated relative to <code>new Date()</code> so the prototype never goes stale.</div>
+      </div>
+      <pre><code><span class="cm">// Typical data import pattern</span>
+<span class="kw">import</span> { MOCK_BOOKINGS } <span class="kw">from</span> <span class="str">"@/data/mock/bookings"</span>;
+<span class="kw">import</span> { MOCK_CUSTOMERS } <span class="kw">from</span> <span class="str">"@/data/mock/customers"</span>;
+
+<span class="cm">// Server components: direct import (no useEffect)</span>
+<span class="cm">// Client components: useState initialized with the import</span>
+<span class="kw">const</span> [bookings, setBookings] = <span class="fn">useState</span>(MOCK_BOOKINGS);</code></pre>
+      <h3 class="sub-title">State Management Pattern</h3>
+      <ul>
+        <li>Pages are server components by default; only components requiring interactivity add <code>"use client"</code></li>
+        <li>No <code>useEffect</code> data fetching — data is imported at module level</li>
+        <li>Admin pages load mock data into local <code>useState</code>, then mutate state locally (no persistence)</li>
+        <li>No global state library — all state is local to the page component</li>
+      </ul>
+    </div>
+
+    <!-- ══════════════════════════════════════════ MIDDLEWARE ══ -->
+    <div class="section" id="middleware">
+      <h2 class="section-title"><span class="section-icon">🔐</span> Middleware &amp; Auth</h2>
+      <h3 class="sub-title">src/middleware.ts</h3>
+      <p>Runs on every request matching <code>/admin/:path*</code>. Allows <code>/admin/login</code> without a session. Checks for the cookie <code>admin_session=authenticated</code> and redirects to <code>/admin/login</code> if missing.</p>
+      <h3 class="sub-title">API Route — /api/admin/auth</h3>
+      <pre><code><span class="cm">// POST /api/admin/auth</span>
+<span class="cm">// Login</span>
+{ <span class="prop">action</span>: <span class="str">"login"</span>, <span class="prop">username</span>: <span class="str">"admin"</span>, <span class="prop">password</span>: <span class="str">"diamond123"</span> }
+<span class="cm">// → sets cookie: admin_session=authenticated (httpOnly, path=/)</span>
+
+<span class="cm">// Logout</span>
+{ <span class="prop">action</span>: <span class="str">"logout"</span> }
+<span class="cm">// → clears cookie</span></code></pre>
+      <div class="callout danger">
+        <span class="callout-icon">⚠️</span>
+        <div>Credentials are hardcoded (<code>admin</code> / <code>diamond123</code>). This is a prototype-only authentication mechanism — not production-safe.</div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ BRAND COLORS ══ -->
+    <div class="section" id="brand-colors">
+      <h2 class="section-title"><span class="section-icon">🎨</span> Brand Colors</h2>
+      <p>Defined as CSS custom properties in <code>src/app/globals.css</code>. Always use hex values directly in <code>style={{}}</code> props or Tailwind arbitrary values — do not add new Tailwind config colors.</p>
+      <div class="color-grid">
+        <div class="color-swatch">
+          <div class="swatch-block" style="background:#337C99;"></div>
+          <div class="swatch-info"><div class="swatch-name">--bs-primary</div><div class="swatch-hex">#337C99</div><div class="swatch-usage">Teal — buttons, accents</div></div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-block" style="background:#b6070e;"></div>
+          <div class="swatch-info"><div class="swatch-name">--bs-danger</div><div class="swatch-hex">#b6070e</div><div class="swatch-usage">Red — CTAs, stat badge, hero</div></div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-block" style="background:#f33b41;"></div>
+          <div class="swatch-info"><div class="swatch-name">--bs-warning</div><div class="swatch-hex">#f33b41</div><div class="swatch-usage">Bright red — Book button, headings</div></div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-block" style="background:#00141B;"></div>
+          <div class="swatch-info"><div class="swatch-name">--bs-info</div><div class="swatch-hex">#00141B</div><div class="swatch-usage">Dark navy — section backgrounds</div></div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-block" style="background:#F7F7F7; border:1px solid #e2e8f0;"></div>
+          <div class="swatch-info"><div class="swatch-name">--bs-light</div><div class="swatch-hex">#F7F7F7</div><div class="swatch-usage">Off-white — card backgrounds</div></div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-block" style="background:#131313;"></div>
+          <div class="swatch-info"><div class="swatch-name">--bs-dark</div><div class="swatch-hex">#131313</div><div class="swatch-usage">Near-black</div></div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-block" style="background:#212529;"></div>
+          <div class="swatch-info"><div class="swatch-name">Body text</div><div class="swatch-hex">#212529</div><div class="swatch-usage">Default text color</div></div>
+        </div>
+        <div class="color-swatch">
+          <div class="swatch-block" style="background:#6c757d;"></div>
+          <div class="swatch-info"><div class="swatch-name">Muted text</div><div class="swatch-hex">#6c757d</div><div class="swatch-usage">Secondary / caption text</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ TYPOGRAPHY ══ -->
+    <div class="section" id="typography">
+      <h2 class="section-title"><span class="section-icon">🔤</span> Typography</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Font</th><th>CSS Var</th><th>Usage</th></tr></thead>
+          <tbody>
+            <tr><td>Inter</td><td><code>--font-inter</code></td><td>Body text, admin UI, most UI elements</td></tr>
+            <tr><td>Figtree</td><td><code>--font-figtree</code></td><td>Headings, hero text, marketing copy</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Both fonts are loaded via <code>next/font/google</code> in <code>src/app/layout.tsx</code> and exposed as CSS variables. Base font size is <code>1.2rem</code> with <code>font-weight: 300</code>.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ LAYOUT CONVENTIONS ══ -->
+    <div class="section" id="layout-conventions">
+      <h2 class="section-title"><span class="section-icon">📐</span> Layout Conventions</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Context</th><th>Class</th></tr></thead>
+          <tbody>
+            <tr><td>Public pages — content width</td><td><code>max-w-[1320px] mx-auto px-4 sm:px-6</code></td></tr>
+            <tr><td>Admin / service pages — content width</td><td><code>max-w-7xl</code></td></tr>
+            <tr><td>Admin inner padding</td><td><code>p-6 lg:p-8</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Inline styles (<code>style={{}}</code>) are intentionally used throughout for brand colors. This avoids polluting the Tailwind config with one-off colors.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ CUSTOM CLASSES ══ -->
+    <div class="section" id="custom-classes">
+      <h2 class="section-title"><span class="section-icon">🧱</span> Custom CSS Classes</h2>
+      <p>Defined in <code>src/app/globals.css</code>.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Class</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>.program-tile</code></td><td>Service cards — 320px height, dark bg, gradient overlay, hover scale + brightness animation</td></tr>
+            <tr><td><code>.program-overlay</code></td><td>Gradient overlay for program tile content (bottom-anchored)</td></tr>
+            <tr><td><code>.value-card</code></td><td>Vision/Mission cards — min 350px, hover lifts -5px, image scales on hover</td></tr>
+            <tr><td><code>.icon-circle</code></td><td>50×50 rounded circle icon containers</td></tr>
+            <tr><td><code>.btn-primary</code></td><td>Teal primary action button (<code>#337C99</code>)</td></tr>
+            <tr><td><code>.btn-secondary</code></td><td>White/outlined secondary button</td></tr>
+            <tr><td><code>.card</code></td><td>Admin card — white bg, border, rounded, shadow</td></tr>
+            <tr><td><code>.input</code></td><td>Form input — consistent padding, border, focus ring</td></tr>
+            <tr><td><code>.label</code></td><td>Form label — small, semi-bold, muted color</td></tr>
+            <tr><td><code>.badge-blue / -green / -orange / -purple / -red / -gray</code></td><td>Status badge chips — colored pill labels</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ INSTRUCTOR COLORS ══ -->
+    <div class="section" id="instructor-colors">
+      <h2 class="section-title"><span class="section-icon">🎨</span> Instructor Color Palette</h2>
+      <p>Each instructor has a unique color used consistently across the schedule grid, booking cards, legend chips, and PDF export. Defined in <code>INSTRUCTOR_COLORS</code> (Tailwind classes) and <code>INSTRUCTOR_ACCENT</code> (hex) in <code>src/app/admin/page.tsx</code>.</p>
+      <div class="instructor-grid">
+        <div class="instructor-chip" style="background:#eff6ff;">
+          <div class="instructor-stripe" style="background:#3b82f6;"></div>
+          <div class="instructor-info"><div class="instructor-name">Marcus Johnson</div><div class="instructor-id">i1 · #3b82f6</div><div class="instructor-spec">Hitting &amp; Pitching</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#faf5ff;">
+          <div class="instructor-stripe" style="background:#a855f7;"></div>
+          <div class="instructor-info"><div class="instructor-name">Sofia Chen</div><div class="instructor-id">i2 · #a855f7</div><div class="instructor-spec">Pitching &amp; Defense</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#f0fdf4;">
+          <div class="instructor-stripe" style="background:#22c55e;"></div>
+          <div class="instructor-info"><div class="instructor-name">Derek Williams</div><div class="instructor-id">i3 · #22c55e</div><div class="instructor-spec">Catching &amp; Fielding</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#fff1f2;">
+          <div class="instructor-stripe" style="background:#f43f5e;"></div>
+          <div class="instructor-info"><div class="instructor-name">Alex Rivera</div><div class="instructor-id">i5 · #f43f5e</div><div class="instructor-spec">Strength &amp; Conditioning</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#fff7ed;">
+          <div class="instructor-stripe" style="background:#f97316;"></div>
+          <div class="instructor-info"><div class="instructor-name">Ryan Torres</div><div class="instructor-id">i6 · #f97316</div><div class="instructor-spec">Speed &amp; Agility</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#ecfeff;">
+          <div class="instructor-stripe" style="background:#06b6d4;"></div>
+          <div class="instructor-info"><div class="instructor-name">Priya Patel</div><div class="instructor-id">i7 · #06b6d4</div><div class="instructor-spec">Batting &amp; Strategy</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#fffbeb;">
+          <div class="instructor-stripe" style="background:#eab308;"></div>
+          <div class="instructor-info"><div class="instructor-name">James Okafor</div><div class="instructor-id">i8 · #eab308</div><div class="instructor-spec">Fielding &amp; Defense</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#eef2ff;">
+          <div class="instructor-stripe" style="background:#6366f1;"></div>
+          <div class="instructor-info"><div class="instructor-name">Lauren Kim</div><div class="instructor-id">i9 · #6366f1</div><div class="instructor-spec">Speed &amp; Conditioning</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#f0fdfa;">
+          <div class="instructor-stripe" style="background:#14b8a6;"></div>
+          <div class="instructor-info"><div class="instructor-name">Carlos Mendes</div><div class="instructor-id">i10 · #14b8a6</div><div class="instructor-spec">Pitching Mechanics</div></div>
+        </div>
+        <div class="instructor-chip" style="background:#fdf4ff;">
+          <div class="instructor-stripe" style="background:#ec4899;"></div>
+          <div class="instructor-info"><div class="instructor-name">Taylor Brooks</div><div class="instructor-id">i11 · #ec4899</div><div class="instructor-spec">Catching &amp; Blocking</div></div>
+        </div>
+      </div>
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <div>i4 (Jordan Smith) is <strong>inactive</strong> and excluded from the booking pool and color map. The gap in IDs (i1–i3, i5–i11) is intentional.</div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ PUBLIC ROUTES ══ -->
+    <div class="section" id="public-routes">
+      <h2 class="section-title"><span class="section-icon">🌐</span> All Public Routes</h2>
+      <p>All service/detail pages are handled by the catch-all <code>src/app/[service]/page.tsx</code> and render using <code>ServicePageLayout</code>. Only the home page, booking wizard, recruits, and cancellation page have bespoke layouts.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ HOME PAGE ══ -->
+    <div class="section" id="home-page">
+      <h2 class="section-title"><span class="section-icon">🏠</span> Home Page</h2>
+      <p>The largest self-contained page (<code>src/app/page.tsx</code>). All sections inline — no sub-components except <code>Testimonials</code> and <code>CtaBanner</code>.</p>
+      <h3 class="sub-title">Sections (in order)</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-body"><div class="step-title">Enrollment Banner</div><div class="step-desc">Sticky top strip promoting winter training enrollment.</div></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-body"><div class="step-title">Hero Banner</div><div class="step-desc">Full-viewport background with gradient overlay. Headline: "Train the Mind. Build the Body. Master the Game." Three CTA buttons: View Programs, Book a Session, About Us.</div></div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-body"><div class="step-title">Who We Are</div><div class="step-desc">Two-column: founding story + 3 benefit points (left), training image (right).</div></div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-body"><div class="step-title">Stats Cards</div><div class="step-desc">Three circular cards: 150+ Active Athletes, 300+ Graduates, 10+ Expert Coaches.</div></div></div>
+        <div class="step"><div class="step-num">5</div><div class="step-body"><div class="step-title">Feature Cards</div><div class="step-desc">Qualified Coaches, Advanced Technology, Player Development.</div></div></div>
+        <div class="step"><div class="step-num">6</div><div class="step-body"><div class="step-title">What We Offer</div><div class="step-desc">Responsive 6-card service grid using <code>.program-tile</code> class — image overlays with descriptions and CTAs.</div></div></div>
+        <div class="step"><div class="step-num">7</div><div class="step-body"><div class="step-title">Our Values</div><div class="step-desc">Two gradient <code>.value-card</code> cards: Vision and Mission, with background images.</div></div></div>
+        <div class="step"><div class="step-num">8</div><div class="step-body"><div class="step-title">Why Choose Us</div><div class="step-desc">Dark full-width section — 4 icon-text pairs: Professional Coaching, Technology, Facilities, Performance Focus.</div></div></div>
+        <div class="step"><div class="step-num">9</div><div class="step-body"><div class="step-title">Meet Our Coaches</div><div class="step-desc">4 coach profile cards with placeholder avatars.</div></div></div>
+        <div class="step"><div class="step-num">10</div><div class="step-body"><div class="step-title">FAQ</div><div class="step-desc">5 accordion questions with expand/collapse state.</div></div></div>
+        <div class="step"><div class="step-num">11</div><div class="step-body"><div class="step-title">Testimonials + CTA Banner</div><div class="step-desc"><code>&lt;Testimonials /&gt;</code> carousel followed by <code>&lt;CtaBanner /&gt;</code>.</div></div></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ SERVICE PAGES ══ -->
+    <div class="section" id="service-pages">
+      <h2 class="section-title"><span class="section-icon">📄</span> Service Pages</h2>
+      <p>All service pages use <code>ServicePageLayout</code>. No bespoke layout needed. The component renders a two-column grid: content (7 cols) + sticky <code>InlineContactForm</code> (5 cols). Ends with <code>Testimonials</code> + <code>CtaBanner</code>.</p>
+      <h3 class="sub-title">ServicePageLayout Props</h3>
+      <pre><code><span class="type">ContentItem</span> = <span class="type">string</span> | <span class="type">string[]</span>  <span class="cm">// strings → &lt;p&gt;, arrays → &lt;ul&gt;</span>
+
+&lt;<span class="fn">ServicePageLayout</span>
+  <span class="prop">badge</span>=<span class="str">"Page Title"</span>                  <span class="cm">// displayed as h1</span>
+  <span class="prop">headline</span>=<span class="str">"Subheadline in red"</span>        <span class="cm">// h2, red color</span>
+  <span class="prop">heroBg</span>=<span class="str">"/images/hero.webp"</span>
+  <span class="prop">heroAlt</span>=<span class="str">"Alt text"</span>
+  <span class="prop">introParagraphs</span>={[<span class="str">"Text"</span>, [<span class="str">"bullet 1"</span>, <span class="str">"bullet 2"</span>]]}
+  <span class="prop">whyTitle</span>=<span class="str">"Why section title"</span>
+  <span class="prop">whyParagraphs</span>={[<span class="str">"..."</span>]}
+  <span class="prop">whoText</span>=<span class="str">"Who can benefit"</span>
+  <span class="prop">overviewTitle</span>=<span class="str">"Overview heading"</span>
+  <span class="prop">overviewParagraphs</span>={[<span class="str">"..."</span>]}
+  <span class="prop">closingTagline</span>=<span class="str">"Closing headline"</span>
+  <span class="prop">closingParagraph</span>=<span class="str">"Closing text"</span>
+  <span class="prop">contentImage</span>=<span class="str">"/images/optional.webp"</span>  <span class="cm">// optional</span>
+  <span class="prop">ctaLabel</span>=<span class="str">"Book a Session"</span>             <span class="cm">// optional</span>
+  <span class="prop">relatedLinks</span>={[{ <span class="prop">label</span>: <span class="str">"Other"</span>, <span class="prop">href</span>: <span class="str">"/other"</span> }]}  <span class="cm">// optional</span>
+/&gt;</code></pre>
+      <p>Bullet items support a <code>"Label:Content"</code> format — the label before the colon is automatically bolded.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ BOOKING WIZARD ══ -->
+    <div class="section" id="booking-wizard">
+      <h2 class="section-title"><span class="section-icon">📅</span> Booking Wizard</h2>
+      <p>Located at <code>/book</code> (<code>src/app/book/page.tsx</code>). A 5-step wizard with step indicators and checkmarks on completed steps.</p>
+      <h3 class="sub-title">BookingForm State Shape</h3>
+      <pre><code>{
+  <span class="prop">instructorId</span>: <span class="type">string</span>;
+  <span class="prop">instructorName</span>: <span class="type">string</span>;
+  <span class="prop">date</span>: <span class="type">string</span>;           <span class="cm">// YYYY-MM-DD (ISO storage)</span>
+  <span class="prop">time</span>: <span class="type">string</span>;           <span class="cm">// HH:MM (24hr)</span>
+  <span class="prop">duration</span>: <span class="num">30</span> | <span class="num">60</span>;
+  <span class="prop">firstName</span>: <span class="type">string</span>;
+  <span class="prop">lastName</span>: <span class="type">string</span>;
+  <span class="prop">email</span>: <span class="type">string</span>;
+  <span class="prop">phone</span>: <span class="type">string</span>;
+  <span class="prop">isForChild</span>: <span class="type">boolean</span>;
+  <span class="prop">childAge</span>: <span class="type">string</span>;
+  <span class="prop">relationship</span>: <span class="type">string</span>;
+  <span class="prop">isRecurring</span>: <span class="type">boolean</span>;
+  <span class="prop">recurringWeeks</span>: <span class="num">2</span> | <span class="num">4</span> | <span class="num">6</span> | <span class="num">8</span>;
+  <span class="prop">isWaitlist</span>: <span class="type">boolean</span>;
+}</code></pre>
+      <h3 class="sub-title">Steps</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-body"><div class="step-title">Instructor Selection</div><div class="step-desc">List of active instructors with specialty. Click to select.</div></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-body"><div class="step-title">Date &amp; Time</div><div class="step-desc">Custom calendar picker (built with date-fns) — today onward, no upper bound. Instructor-specific slot availability from mock schedule. Duration buttons: 30 min / 60 min. Waitlist slots styled amber/yellow. If no slots exist for that date: "No available slots on this date."</div></div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-body"><div class="step-title">Your Details</div><div class="step-desc">First name, last name, email, phone. "Session is for a child" checkbox → reveals child age + relationship dropdown.</div></div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-body"><div class="step-title">Session Frequency</div><div class="step-desc">Single session or Recurring (2/4/6/8 weeks). If recurring: validates availability across all selected weeks, shows any conflict dates.</div></div></div>
+        <div class="step"><div class="step-num">5</div><div class="step-body"><div class="step-title">Review &amp; Confirm</div><div class="step-desc">Summary table of all selections. Cancellation policy reminder. Confirm generates booking reference (<code>DSA-YYYYMMDD-XXXX</code>). Flagged customer check: error modal if email matches a flagged/inactive customer.</div></div></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ CANCELLATION ══ -->
+    <div class="section" id="cancellation">
+      <h2 class="section-title"><span class="section-icon">❌</span> Cancellation Page</h2>
+      <p><code>/cancel/[ref]</code> — cancels a booking by its <code>cancellationToken</code> parameter. Looks up the booking from <code>MOCK_BOOKINGS</code>, shows session details, and on confirm updates status to <code>cancelled</code>. Dates displayed as <code>mm-dd-yyyy</code>.</p>
+      <p>Cancellation token format: <code>tok-b{count}-{hash}</code> — generated deterministically per booking.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ HEADER ══ -->
+    <div class="section" id="header">
+      <h2 class="section-title"><span class="section-icon">🧭</span> Header</h2>
+      <p><code>src/components/Header.tsx</code> — <code>"use client"</code>. Fixed position, transparent on load → gains opaque background after scrolling 60px. Logo inverts color filter when not scrolled.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Breakpoint</th><th>Behavior</th></tr></thead>
+          <tbody>
+            <tr><td>Desktop (lg+)</td><td>NAV array (7 items), hoverable dropdowns, red "Book a Session" button, phone number</td></tr>
+            <tr><td>Mobile (&lt;lg)</td><td>Phone icon (left), logo (center), hamburger (right) → slide-in drawer with collapsible nav</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h4 class="mini-title">Nav Structure</h4>
+      <ul>
+        <li><strong>Home</strong></li>
+        <li><strong>About</strong> → About Us, Our Coaches, Our Facility</li>
+        <li><strong>Programs</strong> → Training, Camps, Clinics</li>
+        <li><strong>Services</strong> → 1-on-1 Training, Speed &amp; Agility, Golf Simulator, Weight Training, Team Rentals, Technology Tunnels, Memberships</li>
+        <li><strong>FAQ</strong>, <strong>Reviews</strong>, <strong>Contact Us</strong></li>
+      </ul>
+      <p>Phone: <strong>(443) 865-1639</strong></p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ FOOTER ══ -->
+    <div class="section" id="footer">
+      <h2 class="section-title"><span class="section-icon">⬇️</span> Footer</h2>
+      <p><code>src/components/Footer.tsx</code>. Dark background, 4-column grid.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Column</th><th>Content</th></tr></thead>
+          <tbody>
+            <tr><td>Col 1 (2-wide)</td><td>Logo, description, Facebook + Instagram icon links (hover → red)</td></tr>
+            <tr><td>Col 2</td><td>Quick Links: Home, About, FAQ, Contact, Privacy</td></tr>
+            <tr><td>Col 3</td><td>Programs: Training, Clinics, Camps, Facility</td></tr>
+            <tr><td>Col 4</td><td>Address, phone, hours</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Bottom bar: Copyright 2026, designer credit (Devon Sprague).</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ SERVICE PAGE LAYOUT ══ -->
+    <div class="section" id="service-page-layout">
+      <h2 class="section-title"><span class="section-icon">🧩</span> ServicePageLayout</h2>
+      <p><code>src/components/ServicePageLayout.tsx</code>. Used by every service/marketing page. Renders: hero image, badge/headline, intro paragraphs, why/who/overview sections, optional inline image, closing tagline, related links. Right column is a sticky <code>InlineContactForm</code>.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ MODAL & TOAST ══ -->
+    <div class="section" id="modal-toast">
+      <h2 class="section-title"><span class="section-icon">💬</span> Modal &amp; Toast</h2>
+      <div class="admin-card">
+        <div class="admin-card-title">Modal.tsx</div>
+        <div class="admin-card-desc">Generic overlay modal. Props: <code>title</code>, <code>children</code>, <code>onClose</code>, <code>footer?</code>. Fixed overlay (z-50), max-w-lg, max-h-90vh, scrollable body.</div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">Toast.tsx</div>
+        <div class="admin-card-desc">Auto-dismissing notification (4s), appears top-right. Props: <code>message</code>, <code>type: "success" | "error" | "info"</code>, <code>onClose</code>. Success → green + CheckCircle. Error → red + AlertTriangle. Info → blue + Info.</div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ TESTIMONIALS + CTA ══ -->
+    <div class="section" id="testimonials-cta">
+      <h2 class="section-title"><span class="section-icon">⭐</span> Testimonials &amp; CtaBanner</h2>
+      <div class="admin-card">
+        <div class="admin-card-title">Testimonials.tsx</div>
+        <div class="admin-card-desc">6-quote manual carousel (no auto-cycle). Prev/next buttons + dot indicators (active dot expands to pill). 6 mock testimonials.</div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">CtaBanner.tsx</div>
+        <div class="admin-card-desc">Optional props with defaults: <code>title</code> ("Let's Train Together"), <code>body</code>, <code>ctaLabel</code> ("Start Your Training"), <code>ctaHref</code> ("/contact-us"). Dark navy background, centered layout.</div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ INLINE CONTACT ══ -->
+    <div class="section" id="inline-contact">
+      <h2 class="section-title"><span class="section-icon">📬</span> InlineContactForm</h2>
+      <p><code>src/components/InlineContactForm.tsx</code>. Embedded in the right column of all service pages. Fields: Name (required), Email (required), Message (required), Phone (optional). Background: <code>#337C99</code>. POSTs to <code>/api/contact</code> — this route does not exist (prototype).</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN AUTH ══ -->
+    <div class="section" id="admin-auth">
+      <h2 class="section-title"><span class="section-icon">🔑</span> Admin Authentication</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Property</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Username</td><td><code>admin</code></td></tr>
+            <tr><td>Password</td><td><code>diamond123</code></td></tr>
+            <tr><td>Cookie name</td><td><code>admin_session</code></td></tr>
+            <tr><td>Cookie value</td><td><code>authenticated</code></td></tr>
+            <tr><td>Admin display name</td><td>Alexis Rivera / Administrator</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN LAYOUT ══ -->
+    <div class="section" id="admin-layout">
+      <h2 class="section-title"><span class="section-icon">🖥</span> Admin Layout &amp; Sidebar</h2>
+      <p><code>AdminContentArea.tsx</code> detects the <code>/admin/login</code> path and renders login full-width; all other admin routes render <code>AdminSidebar</code> + scrollable main content.</p>
+      <p><code>AdminSidebar.tsx</code>: Fixed left sidebar (<code>w-64</code>), dark background. 9 nav items with lucide-react icons. User card at bottom shows "Alexis Rivera / Administrator" and a Sign Out button.</p>
+      <h4 class="mini-title">Sidebar Navigation Items</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <span class="badge badge-gray">Dashboard</span>
+        <span class="badge badge-gray">Manage Bookings</span>
+        <span class="badge badge-gray">Waitlist</span>
+        <span class="badge badge-gray">Customers</span>
+        <span class="badge badge-gray">Instructors</span>
+        <span class="badge badge-gray">Schedule</span>
+        <span class="badge badge-gray">Reports</span>
+        <span class="badge badge-gray">Notifications</span>
+        <span class="badge badge-gray">Settings</span>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN DASHBOARD ══ -->
+    <div class="section" id="admin-dashboard">
+      <h2 class="section-title"><span class="section-icon">📊</span> Today's Schedule (Dashboard)</h2>
+      <p><code>src/app/admin/page.tsx</code> — the main admin dashboard. Shows today's bookings in a time-based schedule grid.</p>
+      <h3 class="sub-title">Schedule Grid</h3>
+      <ul>
+        <li>Time axis: 9:00 AM – 8:30 PM in 30-minute slots, left-side labels</li>
+        <li>Booking area uses <strong>instructor-based invisible columns</strong> — each instructor gets a fixed column, guaranteeing zero visual overlap</li>
+        <li>Column width is <code>minWidth: numCols × 120px</code> with <code>overflow-x: auto</code> on the container — the grid scrolls horizontally when many instructors are present; time labels stay sticky on the left</li>
+        <li>Each booking card shows: <strong>Coach name · duration</strong> (bold, underlined, top line) and trainee name below</li>
+        <li>Cards are color-coded by instructor using <code>INSTRUCTOR_COLORS</code> (light bg) and <code>INSTRUCTOR_ACCENT</code> (left border stripe)</li>
+        <li>Slot height: 56px per 30-minute block</li>
+      </ul>
+      <h3 class="sub-title">Instructor Filter + Legend</h3>
+      <p>Dropdown to filter by instructor (or "All Instructors"). Legend chips below the filter show each active instructor as a mini card chip matching the booking card visual style.</p>
+      <h3 class="sub-title">Booking Cards — Badge System</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        <span class="badge" style="background:#ffedd5;color:#c2410c;">Single-session</span>
+        <span class="badge badge-blue">Recurring</span>
+        <span class="badge badge-purple">Child</span>
+      </div>
+      <p>Walk-in is no longer a badge type. Every booking is either Single-session or Recurring. Child badge appends if <code>isForChild</code> is true.</p>
+      <h3 class="sub-title">Stats Cards</h3>
+      <p>Bookings Today, Active Customers, Active Instructors (counts from mock data).</p>
+      <h3 class="sub-title">PDF Export</h3>
+      <ul>
+        <li>A4 landscape via jsPDF (dynamically imported)</li>
+        <li>Coach legend at top: shows only instructors visible in the current filter (up to 2 rows of 5)</li>
+        <li><strong>Instructor-based dynamic columns</strong> matching the UI grid exactly — same <code>instrList</code>/<code>colIdx</code> logic; column count equals number of instructors in today's filtered bookings</li>
+        <li>Each card shows: <strong>coach name · duration mins</strong> (bold, line 1) and trainee name (line 2) — identical to the UI cards</li>
+        <li>Filename: <code>DSA-schedule-YYYY-MM-DD.pdf</code></li>
+      </ul>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN BOOKINGS ══ -->
+    <div class="section" id="admin-bookings">
+      <h2 class="section-title"><span class="section-icon">📋</span> Manage Bookings</h2>
+      <p><code>src/app/admin/bookings/page.tsx</code></p>
+      <ul>
+        <li>Search by customer name or booking reference</li>
+        <li>Filters: Instructor, Status, date range</li>
+        <li>Pagination: <strong>20 records per page</strong></li>
+        <li>Export CSV of filtered results</li>
+        <li>Dates displayed as <code>mm-dd-yyyy</code></li>
+      </ul>
+      <h3 class="sub-title">Modals</h3>
+      <div class="admin-card">
+        <div class="admin-card-title">Booking Detail Modal</div>
+        <div class="admin-card-desc">Full booking info, status badge, type badges. Cancel options: single session or entire series (with reason). Reschedule button opens Edit modal.</div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">Edit / Reschedule Modal</div>
+        <div class="admin-card-desc">Change date, time, instructor, duration. For recurring bookings: apply to single session or entire series. Validates against active instructors list.</div>
+      </div>
+      <h3 class="sub-title">Status Badges</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <span class="badge badge-green">Confirmed</span>
+        <span class="badge badge-red">Cancelled</span>
+        <span class="badge badge-yellow">No-show</span>
+        <span class="badge badge-gray">Completed</span>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN CUSTOMERS ══ -->
+    <div class="section" id="admin-customers">
+      <h2 class="section-title"><span class="section-icon">👥</span> Customers</h2>
+      <p><code>src/app/admin/customers/page.tsx</code></p>
+      <ul>
+        <li>Search by name/email, filter by flagged status and active/inactive</li>
+        <li>Pagination: <strong>20 records per page</strong></li>
+      </ul>
+      <h3 class="sub-title">Profile View (on row click)</h3>
+      <ul>
+        <li>Edit mode: first/last name, email, phone (inline)</li>
+        <li>Activity summary: no-shows, late cancellations, flagged badge</li>
+        <li>SMS notifications toggle</li>
+        <li>Flag / Unflag button</li>
+        <li>Deactivate / Reactivate with confirmation modal</li>
+        <li>Booking history table</li>
+      </ul>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN INSTRUCTORS ══ -->
+    <div class="section" id="admin-instructors">
+      <h2 class="section-title"><span class="section-icon">🧑‍🏫</span> Instructors</h2>
+      <p><code>src/app/admin/instructors/page.tsx</code> — two tabs.</p>
+      <div class="admin-card">
+        <div class="admin-card-title">Tab 1 — Instructors List</div>
+        <div class="admin-card-desc">Responsive grid (1–4 columns). Cards show avatar, name, specialty, session stats, status badge. Add Instructor modal. Click to open profile view with edit mode, deactivate/reactivate, and upcoming sessions table.</div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">Tab 2 — Availability Slots</div>
+        <div class="admin-card-desc">Select instructor + date (min = today). A legend shows teal = Available / gray = Unavailable before the slot grid. Grid of 30-min slots (future slots only for today's date — past times are hidden). Toggle teal/gray. Save Slots updates the availability record. Configured Availability table shows only future dates.</div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN SCHEDULE ══ -->
+    <div class="section" id="admin-schedule">
+      <h2 class="section-title"><span class="section-icon">🗓</span> Schedule Configuration</h2>
+      <p><code>src/app/admin/schedule/page.tsx</code> — four tabs.</p>
+      <div class="admin-card">
+        <div class="admin-card-title">Tab 1 — Operating Hours</div>
+        <div class="admin-card-desc">Weekly table: Day, Open/Closed toggle, time pickers. Save detects conflicts with existing bookings and shows affected list before confirming.</div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">Tab 2 — Blackout Dates</div>
+        <div class="admin-card-desc">List of facility/instructor blackouts. Add Blackout modal: date, type (facility/instructor), instructor, reason. Delete per row; shows affected bookings warning.</div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">Tab 3 — Lane Utilization</div>
+        <div class="admin-card-desc">Editable lane count. Today's utilization table: Time, used/total, progress bar (blue &lt;75%, amber 75–99%, red ≥100%).</div>
+      </div>
+      <div class="admin-card">
+        <div class="admin-card-title">Tab 4 — Instructor Slots</div>
+        <div class="admin-card-desc">Select instructor + date → toggle 30-min availability slots. Save Slots button (disabled if no changes). Summary table below.</div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN WAITLIST ══ -->
+    <div class="section" id="admin-waitlist">
+      <h2 class="section-title"><span class="section-icon">⏳</span> Waitlist</h2>
+      <p><code>src/app/admin/waitlist/page.tsx</code></p>
+      <ul>
+        <li>Two tabs inline next to heading: <strong>Upcoming</strong> and <strong>Past</strong></li>
+        <li>Sort: ascending by date, then time</li>
+        <li>Pagination: <strong>20 records per page</strong></li>
+        <li><strong>Promote</strong>: converts waitlist entry to confirmed booking (generates ref, updates status)</li>
+        <li><strong>Remove</strong>: removes entry from list</li>
+        <li>Converted entries show booking reference and are retained for audit</li>
+      </ul>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <span class="badge badge-yellow">Waiting</span>
+        <span class="badge badge-green">Converted</span>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN REPORTS ══ -->
+    <div class="section" id="admin-reports">
+      <h2 class="section-title"><span class="section-icon">📈</span> Reports</h2>
+      <p><code>src/app/admin/reports/page.tsx</code></p>
+      <ul>
+        <li>Date range selector: All Time or current month</li>
+        <li>Key metrics: Total sessions, delivered, cancellation rate %, avg session length</li>
+        <li>Status breakdown with bar charts</li>
+        <li>Session types breakdown: recurring, child, standard</li>
+        <li>Instructor performance table</li>
+        <li>Top 5 customers table by session count</li>
+      </ul>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN NOTIFICATIONS ══ -->
+    <div class="section" id="admin-notifications">
+      <h2 class="section-title"><span class="section-icon">🔔</span> Notifications</h2>
+      <p><code>src/app/admin/notifications/page.tsx</code></p>
+      <ul>
+        <li>Summary counts: Sent, Pending, Failed</li>
+        <li>Filters: Search, channel, status, notification type</li>
+        <li>Pagination: <strong>30 records per page</strong></li>
+        <li>Retry button for failed notifications</li>
+      </ul>
+      <h3 class="sub-title">Channel Badges</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <span class="badge badge-blue">Email</span>
+        <span class="badge badge-orange">SMS</span>
+        <span class="badge badge-purple">Calendar</span>
+      </div>
+      <h3 class="sub-title">Status Badges</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <span class="badge badge-green">Sent</span>
+        <span class="badge badge-yellow">Pending</span>
+        <span class="badge badge-red">Failed</span>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ ADMIN SETTINGS ══ -->
+    <div class="section" id="admin-settings">
+      <h2 class="section-title"><span class="section-icon">⚙️</span> Settings</h2>
+      <p><code>src/app/admin/settings/page.tsx</code> — five tabs.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tab</th><th>Fields</th></tr></thead>
+          <tbody>
+            <tr><td>General</td><td>Facility name, location, contact email, phone, website, timezone</td></tr>
+            <tr><td>Lane Config</td><td>Number of active lanes (1–10)</td></tr>
+            <tr><td>Notifications</td><td>Customer notification toggles (confirmation, 24hr reminder, 2hr SMS, calendar invite), Admin alerts + email</td></tr>
+            <tr><td>Cancellation Policy</td><td>Late cancel window (12/24/48 hr), no-show policy text, self-cancel toggle, require reason toggle</td></tr>
+            <tr><td>Security</td><td>Change password (validates against "diamond123"), admin account info</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DATA STRATEGY ══ -->
+    <div class="section" id="data-strategy">
+      <h2 class="section-title"><span class="section-icon">🔬</span> Mock Data — Generation Strategy</h2>
+      <p>All mock data is generated at module load time using a <strong>seeded LCG (Linear Congruential Generator)</strong> RNG. The same seed always produces the same output, making the data deterministic and reproducible across sessions.</p>
+      <pre><code><span class="kw">class</span> <span class="type">RNG</span> {
+  <span class="kw">private</span> s: <span class="type">number</span>;
+  <span class="kw">constructor</span>(seed: <span class="type">number</span>) { <span class="kw">this</span>.s = ((seed >>> <span class="num">0</span>) || <span class="num">1</span>) &amp; <span class="num">0x7fffffff</span>; }
+  <span class="fn">next</span>(): <span class="type">number</span> {
+    <span class="kw">this</span>.s = (<span class="kw">this</span>.s * <span class="num">1664525</span> + <span class="num">1013904223</span>) &amp; <span class="num">0x7fffffff</span>;
+    <span class="kw">return</span> <span class="kw">this</span>.s / <span class="num">0x7fffffff</span>;
+  }
+  <span class="fn">int</span>(n: <span class="type">number</span>) { <span class="kw">return</span> Math.<span class="fn">floor</span>(<span class="kw">this</span>.<span class="fn">next</span>() * n); }
+  <span class="fn">bool</span>(p = <span class="num">0.5</span>) { <span class="kw">return</span> <span class="kw">this</span>.<span class="fn">next</span>() &lt; p; }
+  <span class="fn">pick</span>&lt;<span class="type">T</span>&gt;(a: <span class="type">T</span>[]) { <span class="kw">return</span> a[<span class="kw">this</span>.<span class="fn">int</span>(a.length)]; }
+}</code></pre>
+      <h3 class="sub-title">Date-Relative Generation</h3>
+      <p>All ranges are computed from <code>new Date()</code> at module load. Bookings cover 30 days before today through 90 days ahead. Schedule availability covers 13 weeks forward. This ensures the prototype never shows stale dates regardless of when it is opened.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DATA BOOKINGS ══ -->
+    <div class="section" id="data-bookings">
+      <h2 class="section-title"><span class="section-icon">📖</span> Data — Bookings</h2>
+      <pre><code><span class="kw">type</span> <span class="type">Booking</span> = {
+  <span class="prop">id</span>: <span class="type">string</span>;
+  <span class="prop">bookingReference</span>: <span class="type">string</span>;       <span class="cm">// DSA-YYYY-NNNNN</span>
+  <span class="prop">cancellationToken</span>: <span class="type">string</span>;      <span class="cm">// tok-b{n}-{hash}</span>
+  <span class="prop">customerId</span>: <span class="type">string</span>;
+  <span class="prop">customerName</span>: <span class="type">string</span>;
+  <span class="prop">instructorId</span>: <span class="type">string</span>;
+  <span class="prop">instructorName</span>: <span class="type">string</span>;
+  <span class="prop">date</span>: <span class="type">string</span>;                  <span class="cm">// ISO: yyyy-MM-dd (stored)</span>
+  <span class="prop">startTime</span>: <span class="type">string</span>;             <span class="cm">// HH:MM 24hr</span>
+  <span class="prop">endTime</span>: <span class="type">string</span>;
+  <span class="prop">durationMinutes</span>: <span class="num">30</span> | <span class="num">60</span>;
+  <span class="prop">status</span>: <span class="str">"confirmed"</span> | <span class="str">"cancelled"</span> | <span class="str">"no_show"</span> | <span class="str">"completed"</span>;
+  <span class="prop">isForChild</span>: <span class="type">boolean</span>;
+  <span class="prop">childAge</span>?: <span class="type">number</span>;
+  <span class="prop">relationshipToCustomer</span>?: <span class="type">string</span>;
+  <span class="prop">isRecurring</span>: <span class="type">boolean</span>;
+  <span class="prop">recurringSeriesId</span>?: <span class="type">string</span>;
+  <span class="prop">isWalkIn</span>: <span class="type">boolean</span>;
+  <span class="prop">cancelledBy</span>?: <span class="str">"customer"</span> | <span class="str">"admin"</span>;
+  <span class="prop">cancellationReason</span>?: <span class="type">string</span>;
+  <span class="prop">laneAssigned</span>: <span class="type">number</span>;           <span class="cm">// 1–4</span>
+  <span class="prop">createdAt</span>: <span class="type">string</span>;
+};</code></pre>
+      <h3 class="sub-title">Generation Details</h3>
+      <ul>
+        <li><strong>Range:</strong> 30 days before today → 90 days ahead (~3 months)</li>
+        <li><strong>Volume:</strong> ~30 bookings/day on weekdays (7% slow days: 8–17, 7% packed: 42–49, Saturday: 32–45, Sunday: 18–31)</li>
+        <li><strong>90 recurring series</strong> placed first; single-session bookings fill the remaining target</li>
+        <li><strong>Lane grid:</strong> 4 lanes × 24 slots. <code>tryAssignLane(si, numSlots, instId)</code> checks both lane AND instructor occupancy — an instructor cannot appear in two lanes at the same time</li>
+        <li><strong>Status by date:</strong> past → 76% completed / 18% cancelled / 6% no_show; today → time-aware; future → 88% confirmed / 12% cancelled</li>
+        <li><strong>Instructor pool:</strong> i1, i2, i3, i5, i6, i7, i8, i9, i10, i11 (10 active instructors)</li>
+        <li><strong>Customer pool:</strong> 150 customers (c1–c150)</li>
+      </ul>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DATA CUSTOMERS ══ -->
+    <div class="section" id="data-customers">
+      <h2 class="section-title"><span class="section-icon">👤</span> Data — Customers</h2>
+      <pre><code><span class="kw">type</span> <span class="type">Customer</span> = {
+  <span class="prop">id</span>: <span class="type">string</span>;              <span class="cm">// c1–c150</span>
+  <span class="prop">firstName</span>: <span class="type">string</span>;
+  <span class="prop">lastName</span>: <span class="type">string</span>;
+  <span class="prop">email</span>: <span class="type">string</span>;
+  <span class="prop">phone</span>: <span class="type">string</span>;
+  <span class="prop">isActive</span>: <span class="type">boolean</span>;       <span class="cm">// 90% active</span>
+  <span class="prop">isFlagged</span>: <span class="type">boolean</span>;      <span class="cm">// auto if noShowCount≥2 or lateCancelCount≥3, or 4% random</span>
+  <span class="prop">noShowCount</span>: <span class="type">number</span>;
+  <span class="prop">lateCancellationCount</span>: <span class="type">number</span>;
+  <span class="prop">smsOptOut</span>: <span class="type">boolean</span>;      <span class="cm">// 15%</span>
+  <span class="prop">source</span>: <span class="str">"online_booking"</span> | <span class="str">"admin_booking"</span> | <span class="str">"import"</span>; <span class="cm">// 60/25/15%</span>
+  <span class="prop">createdAt</span>: <span class="type">string</span>;
+  <span class="prop">deactivatedAt</span>?: <span class="type">string</span>;
+};</code></pre>
+      <p>150 customers generated with seed 42. 80 first names × 80 last names pool. Email deduplication with index suffix on collision. Exports both <code>MOCK_CUSTOMERS</code> and <code>CUSTOMER_POOL</code> (id + name only, used by bookings generator).</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DATA INSTRUCTORS ══ -->
+    <div class="section" id="data-instructors">
+      <h2 class="section-title"><span class="section-icon">🏋️</span> Data — Instructors</h2>
+      <pre><code><span class="kw">type</span> <span class="type">Instructor</span> = {
+  <span class="prop">id</span>: <span class="type">string</span>;
+  <span class="prop">firstName</span>: <span class="type">string</span>;
+  <span class="prop">lastName</span>: <span class="type">string</span>;
+  <span class="prop">email</span>: <span class="type">string</span>;
+  <span class="prop">speciality</span>: <span class="type">string</span>;
+  <span class="prop">isActive</span>: <span class="type">boolean</span>;
+  <span class="prop">totalSessionsDelivered</span>: <span class="type">number</span>;
+  <span class="prop">upcomingSessions</span>: <span class="type">number</span>;
+  <span class="prop">createdAt</span>: <span class="type">string</span>;
+  <span class="prop">deactivatedAt</span>?: <span class="type">string</span>;
+};</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>Name</th><th>Speciality</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>i1</td><td>Marcus Johnson</td><td>Hitting &amp; Pitching</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i2</td><td>Sofia Chen</td><td>Pitching &amp; Defense</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i3</td><td>Derek Williams</td><td>Catching &amp; Fielding</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i4</td><td>Jordan Smith</td><td>Speed &amp; Agility</td><td><span class="badge badge-red">Inactive</span></td></tr>
+            <tr><td>i5</td><td>Alex Rivera</td><td>Strength &amp; Conditioning</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i6</td><td>Ryan Torres</td><td>Speed &amp; Agility</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i7</td><td>Priya Patel</td><td>Batting &amp; Strategy</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i8</td><td>James Okafor</td><td>Fielding &amp; Defense</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i9</td><td>Lauren Kim</td><td>Speed &amp; Conditioning</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i10</td><td>Carlos Mendes</td><td>Pitching Mechanics</td><td><span class="badge badge-green">Active</span></td></tr>
+            <tr><td>i11</td><td>Taylor Brooks</td><td>Catching &amp; Blocking</td><td><span class="badge badge-green">Active</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DATA SCHEDULE ══ -->
+    <div class="section" id="data-schedule">
+      <h2 class="section-title"><span class="section-icon">🕐</span> Data — Schedule</h2>
+      <p>Instructor availability is generated dynamically from weekly patterns relative to today, covering 13 weeks forward. This means availability never goes stale.</p>
+      <h3 class="sub-title">Availability Patterns</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Instructor</th><th>Days Available</th></tr></thead>
+          <tbody>
+            <tr><td>Marcus Johnson (i1)</td><td>Mon (morning+afternoon), Wed (afternoon+evening), Fri (all day)</td></tr>
+            <tr><td>Sofia Chen (i2)</td><td>Tue (morning+afternoon), Wed (all day), Fri (morning+afternoon)</td></tr>
+            <tr><td>Derek Williams (i3)</td><td>Mon (afternoon+evening), Tue (all day), Thu (morning+afternoon), Sat (morning+afternoon)</td></tr>
+            <tr><td>Ryan Torres (i6)</td><td>Mon (morning+afternoon), Thu (afternoon+evening), Sat (all day)</td></tr>
+            <tr><td>Priya Patel (i7)</td><td>Tue (morning+afternoon), Fri (all day), Sat (morning+afternoon)</td></tr>
+            <tr><td>James Okafor (i8)</td><td>Mon (all day), Wed (morning+afternoon), Fri (afternoon+evening)</td></tr>
+            <tr><td>Lauren Kim (i9)</td><td>Tue (afternoon+evening), Thu (all day), Sat (morning+afternoon)</td></tr>
+            <tr><td>Carlos Mendes (i10)</td><td>Mon (morning+afternoon), Tue (afternoon+evening), Fri (all day)</td></tr>
+            <tr><td>Taylor Brooks (i11)</td><td>Wed (morning+afternoon), Thu (morning+afternoon), Sat (all day)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Slot time groups: <strong>Morning</strong> 9:00–11:30, <strong>Afternoon</strong> 12:00–16:30, <strong>Evening</strong> 17:00–20:30.</p>
+      <p><code>LANE_CONFIG</code>: 4 active lanes. <code>LANE_UTILIZATION</code>: static map of 24 time slots showing used/total counts.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DATA WAITLIST ══ -->
+    <div class="section" id="data-waitlist">
+      <h2 class="section-title"><span class="section-icon">📝</span> Data — Waitlist</h2>
+      <pre><code><span class="kw">type</span> <span class="type">WaitlistEntry</span> = {
+  <span class="prop">id</span>: <span class="type">string</span>;
+  <span class="prop">date</span>: <span class="type">string</span>;
+  <span class="prop">time</span>: <span class="type">string</span>;
+  <span class="prop">instructorId</span>: <span class="type">string</span>;
+  <span class="prop">instructorName</span>: <span class="type">string</span>;
+  <span class="prop">firstName</span>: <span class="type">string</span>;
+  <span class="prop">lastName</span>: <span class="type">string</span>;
+  <span class="prop">email</span>: <span class="type">string</span>;
+  <span class="prop">phone</span>: <span class="type">string</span>;
+  <span class="prop">createdAt</span>: <span class="type">string</span>;
+  <span class="prop">convertedBookingId</span>?: <span class="type">string</span>;
+};</code></pre>
+      <p>Generated with seed 5555. 12 weeks of data: 2 weeks before today through 10 weeks ahead. 3–4 entries per week. Past entries have a 55% chance of having a <code>convertedBookingId</code>.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DATA NOTIFICATIONS ══ -->
+    <div class="section" id="data-notifications">
+      <h2 class="section-title"><span class="section-icon">📨</span> Data — Notifications</h2>
+      <pre><code><span class="kw">type</span> <span class="type">NotificationRecord</span> = {
+  <span class="prop">id</span>: <span class="type">string</span>;
+  <span class="prop">bookingId</span>: <span class="type">string</span>;
+  <span class="prop">bookingReference</span>: <span class="type">string</span>;
+  <span class="prop">recipientType</span>: <span class="str">"customer"</span> | <span class="str">"instructor"</span> | <span class="str">"admin"</span>;
+  <span class="prop">recipientName</span>: <span class="type">string</span>;
+  <span class="prop">recipientEmail</span>: <span class="type">string</span>;
+  <span class="prop">notificationType</span>: <span class="str">"confirmation"</span> | <span class="str">"reminder_24hr"</span> | <span class="str">"reminder_2hr_sms"</span>
+    | <span class="str">"change"</span> | <span class="str">"cancellation"</span> | <span class="str">"calendar_invite"</span>;
+  <span class="prop">channel</span>: <span class="str">"email"</span> | <span class="str">"sms"</span> | <span class="str">"calendar"</span>;
+  <span class="prop">sentAt</span>: <span class="type">string</span>;
+  <span class="prop">deliveryStatus</span>: <span class="str">"sent"</span> | <span class="str">"pending"</span> | <span class="str">"failed"</span>;
+};</code></pre>
+      <h3 class="sub-title">Generation Rules</h3>
+      <ul>
+        <li><strong>Window:</strong> last 30 days only (no future notifications)</li>
+        <li><strong>Cap:</strong> maximum 300 records — all 6 notification types guaranteed to appear</li>
+        <li>Per booking: confirmation (email), calendar invite (instructor), 24hr reminder (email), 40% chance of 2hr SMS</li>
+        <li>Cancelled bookings also get: cancellation email to customer + instructor</li>
+        <li>5% of bookings get an admin "change" notification</li>
+        <li>Sorted by <code>sentAt</code> descending (most recent first)</li>
+      </ul>
+    </div>
+
+    <!-- ══════════════════════════════════════════ DEPLOYMENT ══ -->
+    <div class="section" id="deployment">
+      <h2 class="section-title"><span class="section-icon">🚀</span> Cloudflare Pages Deployment</h2>
+      <h3 class="sub-title">wrangler.toml</h3>
+      <pre><code>name = <span class="str">"dsa-wp-modern-prototype"</span>
+compatibility_date = <span class="str">"2024-09-23"</span>
+compatibility_flags = [<span class="str">"nodejs_compat"</span>]
+pages_build_output_dir = <span class="str">".vercel/output/static"</span></code></pre>
+      <h3 class="sub-title">next.config.mjs (key settings)</h3>
+      <pre><code>images: {
+  <span class="prop">unoptimized</span>: <span class="kw">true</span>,  <span class="cm">// required — Cloudflare Pages has no Node.js image server</span>
+  <span class="prop">remotePatterns</span>: [{
+    <span class="prop">protocol</span>: <span class="str">"https"</span>,
+    <span class="prop">hostname</span>: <span class="str">"thediamondsportsacademy.com"</span>,
+    <span class="prop">pathname</span>: <span class="str">"/wp-content/uploads/**"</span>
+  }]
+}</code></pre>
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <div>Image optimization is disabled (<code>unoptimized: true</code>) because Cloudflare Pages does not support the Node.js image optimization server that Next.js uses. All images are served as-is from <code>public/images/</code>.</div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ GIT HISTORY ══ -->
+    <div class="section" id="git-history">
+      <h2 class="section-title"><span class="section-icon">📜</span> Git History</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Commit</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>b98efae</code></td><td>Initial commit: DSA modern prototype (full codebase)</td></tr>
+            <tr><td><code>bb2c7a0</code></td><td>Update wrangler project name for Cloudflare Pages</td></tr>
+            <tr><td><code>c15f7e4</code></td><td>Configure project for Cloudflare Pages deployment (disable image optimization)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>All commits on branch <code>feature/deployCloudflare</code>. Main branch remains at <code>b98efae</code>.</p>
+    </div>
+
+    <!-- ══════════════════════════════════════════ BUSINESS INFO ══ -->
+    <div class="section" id="business-info">
+      <h2 class="section-title"><span class="section-icon">🏢</span> Business Information</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Field</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Business Name</td><td>The Diamond Sports Academy</td></tr>
+            <tr><td>Address</td><td>8274 Lokus Rd, Odenton, MD 21113</td></tr>
+            <tr><td>Phone</td><td>(443) 865-1639</td></tr>
+            <tr><td>Hours</td><td>Mon–Fri 8 AM–8 PM, Sat 9 AM–5 PM</td></tr>
+            <tr><td>Founded</td><td>2022</td></tr>
+            <tr><td>Stats</td><td>150+ active athletes, 300+ program graduates, 10+ expert coaches</td></tr>
+            <tr><td>Technology</td><td>HitTrax, Rapsodo, Blast Motion</td></tr>
+            <tr><td>Facebook</td><td>facebook.com/p/The-Diamond-Sports-Academy-100088094180071/</td></tr>
+            <tr><td>Instagram</td><td>instagram.com/the_diamond_sports_academy/</td></tr>
+            <tr><td>Existing site</td><td>thediamondsportsacademy.com (WordPress)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3 class="sub-title">Real Coaching Staff (used in marketing copy)</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>Chris Ford</td><td>Owner &amp; Founder</td></tr>
+            <tr><td>Coach Megan</td><td>Pitching &amp; Conditioning</td></tr>
+            <tr><td>Syeed Mahdi</td><td>Hitting &amp; Fielding Instructor</td></tr>
+            <tr><td>Connor Hax</td><td>Baseball Instructor</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ LIMITATIONS ══ -->
+    <div class="section" id="limitations">
+      <h2 class="section-title"><span class="section-icon">⚠️</span> Prototype Limitations</h2>
+      <div class="callout warning">
+        <span class="callout-icon">⚠️</span>
+        <div>This is a UI/UX prototype only. The following features are intentionally unimplemented and must be built before production launch.</div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Feature</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Database / ORM</td><td><span class="badge badge-red">Not implemented</span></td><td>All data is in-memory mock arrays — resets on page refresh</td></tr>
+            <tr><td>Email / SMS sending</td><td><span class="badge badge-red">Not implemented</span></td><td><code>/api/contact</code> route does not exist; forms silently succeed</td></tr>
+            <tr><td>Payment processing</td><td><span class="badge badge-red">Not implemented</span></td><td>No Stripe or payment gateway integration</td></tr>
+            <tr><td>Real authentication</td><td><span class="badge badge-red">Prototype only</span></td><td>Hardcoded cookie — not suitable for production</td></tr>
+            <tr><td>Booking persistence</td><td><span class="badge badge-red">Not implemented</span></td><td>Booking reference is generated client-side and not stored</td></tr>
+            <tr><td>CMS integration</td><td><span class="badge badge-red">Not implemented</span></td><td>All copy is hardcoded in component files</td></tr>
+            <tr><td>Test suite</td><td><span class="badge badge-red">Does not exist</span></td><td>No unit, integration, or E2E tests</td></tr>
+            <tr><td>Image optimization</td><td><span class="badge badge-yellow">Disabled</span></td><td>Required for Cloudflare Pages compatibility</td></tr>
+            <tr><td>Multi-user admin</td><td><span class="badge badge-red">Not implemented</span></td><td>Single hardcoded user "Alexis Rivera"</td></tr>
+            <tr><td>Real-time updates</td><td><span class="badge badge-red">Not implemented</span></td><td>No WebSocket / polling — schedule is static on load</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="border-top:1px solid var(--border);padding-top:24px;margin-top:16px;text-align:center;">
+      <p style="color:var(--muted);font-size:12px;">DSA Modern Prototype Documentation · Last updated June 2026 · Branch: <code>feature/deployCloudflare</code></p>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<a class="scroll-top" id="scrollTop" href="#" title="Back to top">↑</a>
+
+<script>
+  // ── Active nav highlight on scroll ──
+  const sections = document.querySelectorAll('.section[id]');
+  const navLinks = document.querySelectorAll('.nav-link');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        navLinks.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.nav-link[href="#${e.target.id}"]`);
+        if (active) {
+          active.classList.add('active');
+          active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      }
+    });
+  }, { rootMargin: '-10% 0px -80% 0px' });
+  sections.forEach(s => observer.observe(s));
+
+  // ── Sidebar search ──
+  document.getElementById('navSearch').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    navLinks.forEach(l => {
+      const match = l.textContent.toLowerCase().includes(q);
+      l.style.display = (q === '' || match) ? '' : 'none';
+    });
+    document.querySelectorAll('.nav-group-label').forEach(g => {
+      g.style.display = q === '' ? '' : 'none';
+    });
+  });
+
+  // ── Scroll-to-top button ──
+  const scrollBtn = document.getElementById('scrollTop');
+  window.addEventListener('scroll', () => {
+    scrollBtn.classList.toggle('visible', window.scrollY > 400);
+  });
+  scrollBtn.addEventListener('click', e => {
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+</script>
+</body>
+</html>

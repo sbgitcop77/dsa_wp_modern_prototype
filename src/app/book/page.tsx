@@ -1,10 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Image from "next/image";
+import {
+  startOfDay, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
+  eachDayOfInterval, addMonths, subMonths, format, isBefore, isSameMonth, isToday,
+} from "date-fns";
 import { MOCK_INSTRUCTORS } from "@/data/mock/instructors";
 import { INSTRUCTOR_AVAILABILITY, LANE_UTILIZATION, OPERATING_HOURS, BLACKOUTS } from "@/data/mock/schedule";
 import { MOCK_CUSTOMERS } from "@/data/mock/customers";
-import { Check } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -44,21 +48,19 @@ const INITIAL_FORM: BookingForm = {
   isWaitlist: false,
 };
 
-const DEMO_DAYS = [
-  { label: "Mon May 11", date: "2026-05-11" },
-  { label: "Tue May 12", date: "2026-05-12" },
-  { label: "Wed May 13", date: "2026-05-13" },
-  { label: "Thu May 14", date: "2026-05-14" },
-  { label: "Fri May 15", date: "2026-05-15" },
-  { label: "Sat May 16", date: "2026-05-16" },
-];
-
 const ACTIVE_INSTRUCTORS = MOCK_INSTRUCTORS.filter(i => i.isActive);
 
 const INSTRUCTOR_SPECIALTIES: Record<string, string> = {
-  i1: "Hitting & Pitching",
-  i2: "Pitching & Defense",
-  i3: "Catching & Fielding",
+  i1:  "Hitting & Pitching",
+  i2:  "Pitching & Defense",
+  i3:  "Catching & Fielding",
+  i5:  "Strength & Conditioning",
+  i6:  "Speed & Agility",
+  i7:  "Batting & Strategy",
+  i8:  "Fielding & Defense",
+  i9:  "Speed & Conditioning",
+  i10: "Pitching Mechanics",
+  i11: "Catching & Blocking",
 };
 
 function formatTime(t: string) {
@@ -243,9 +245,17 @@ export default function BookPage() {
               </div>
             </div>
             {!form.isWaitlist && (
-              <p className="text-xs text-[#6c757d] mb-6">
-                To cancel this booking, use the cancellation link in your confirmation email.
-              </p>
+              <div className="mb-6 bg-gray-50 rounded-lg p-3 text-left">
+                <p className="text-xs text-[#6c757d] mb-1.5">Need to cancel or reschedule? Manage your booking at:</p>
+                <a
+                  href={`/manage/${bookingRef}`}
+                  className="text-xs font-mono font-semibold break-all"
+                  style={{ color: "#337C99" }}
+                >
+                  /manage/{bookingRef}
+                </a>
+                <p className="text-xs text-[#6c757d] mt-1">This link is also in your confirmation email.</p>
+              </div>
             )}
             <button onClick={reset} className="btn-primary w-full justify-center">
               {form.isWaitlist ? "Done" : "Book Another Session"}
@@ -349,27 +359,11 @@ export default function BookPage() {
 
               <div className="mb-5">
                 <label className="label">Date</label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {DEMO_DAYS.map(d => {
-                    const hasSlots = INSTRUCTOR_AVAILABILITY.some(a => a.instructorId === form.instructorId && a.date === d.date && a.slots.length > 0);
-                    return (
-                      <button
-                        key={d.date}
-                        onClick={() => { if (hasSlots) { set("date", d.date); set("time", ""); } }}
-                        disabled={!hasSlots}
-                        className={`border rounded-lg px-3 py-2 text-sm transition-all ${
-                          form.date === d.date
-                            ? "border-[#337C99] bg-[#337C99]/5 text-[#337C99] font-medium"
-                            : hasSlots
-                              ? "border-gray-200 hover:border-gray-300 text-[#212529]"
-                              : "border-gray-100 text-gray-300 cursor-not-allowed bg-gray-50"
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                <Calendar
+                  selectedDate={form.date}
+                  instructorId={form.instructorId}
+                  onSelect={d => { set("date", d); set("time", ""); }}
+                />
               </div>
 
               {form.date && (
@@ -665,6 +659,113 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
     <div className="flex gap-2 py-0.5">
       <span className="text-[#6c757d] w-28 flex-shrink-0">{label}</span>
       <span className="text-[#212529] font-medium">{value}</span>
+    </div>
+  );
+}
+
+function Calendar({
+  selectedDate,
+  onSelect,
+  instructorId = "",
+}: {
+  selectedDate: string;
+  onSelect: (date: string) => void;
+  instructorId?: string;
+}) {
+  const today = startOfDay(new Date());
+  const [viewMonth, setViewMonth] = useState(() =>
+    startOfMonth(selectedDate ? new Date(selectedDate + "T00:00:00") : today)
+  );
+
+  const availableDates = useMemo(() => {
+    if (!instructorId) return new Set<string>();
+    const s = new Set<string>();
+    INSTRUCTOR_AVAILABILITY
+      .filter(a => a.instructorId === instructorId && a.slots.length > 0)
+      .forEach(a => s.add(a.date));
+    return s;
+  }, [instructorId]);
+
+  const gridStart = startOfWeek(startOfMonth(viewMonth));
+  const gridEnd = endOfWeek(endOfMonth(viewMonth));
+  const days = eachDayOfInterval({ start: gridStart, end: gridEnd });
+  const isCurrentMonth = isSameMonth(viewMonth, today);
+
+  return (
+    <div className="border border-gray-200 rounded-xl p-4 max-w-sm mx-auto">
+      <div className="flex items-center justify-between mb-3">
+        <button
+          type="button"
+          onClick={() => setViewMonth(m => subMonths(m, 1))}
+          disabled={isCurrentMonth}
+          className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronLeft className="w-4 h-4 text-[#212529]" />
+        </button>
+        <span className="text-sm font-semibold text-[#212529]">{format(viewMonth, "MMMM yyyy")}</span>
+        <button
+          type="button"
+          onClick={() => setViewMonth(m => addMonths(m, 1))}
+          className="p-1.5 rounded-lg hover:bg-gray-100"
+        >
+          <ChevronRight className="w-4 h-4 text-[#212529]" />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-xs text-[#6c757d] mb-1">
+        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+          <div key={i} className="py-1">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {days.map(d => {
+          const dateStr = format(d, "yyyy-MM-dd");
+          const inMonth = isSameMonth(d, viewMonth);
+          const isPast = isBefore(d, today);
+          const isSelected = dateStr === selectedDate;
+          const hasSlots = instructorId ? availableDates.has(dateStr) : true;
+          const isDisabled = !inMonth || isPast || (instructorId ? !hasSlots : false);
+          return (
+            <button
+              type="button"
+              key={dateStr}
+              disabled={isDisabled}
+              onClick={() => onSelect(dateStr)}
+              className={`relative rounded-lg text-sm transition-all py-1.5 ${
+                !inMonth
+                  ? "invisible"
+                  : isSelected
+                    ? "text-white font-medium"
+                    : isPast || !hasSlots
+                      ? "text-gray-300 cursor-not-allowed"
+                      : isToday(d)
+                        ? "border border-[#337C99] text-[#337C99] font-medium hover:bg-[#337C99]/5"
+                        : "text-[#212529] hover:bg-gray-100"
+              }`}
+              style={isSelected ? { backgroundColor: "#337C99" } : {}}
+            >
+              {format(d, "d")}
+              {hasSlots && inMonth && !isPast && (
+                <span
+                  className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                  style={{ backgroundColor: isSelected ? "rgba(255,255,255,0.7)" : "#337C99" }}
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {instructorId && (
+        <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-100">
+          <span className="flex items-center gap-1.5 text-xs text-[#6c757d]">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-[#337C99] text-[10px] text-[#337C99]">●</span>
+            Available
+          </span>
+          <span className="flex items-center gap-1.5 text-xs text-[#6c757d]">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded border border-gray-200 text-[10px] text-gray-300">●</span>
+            No slots
+          </span>
+        </div>
+      )}
     </div>
   );
 }

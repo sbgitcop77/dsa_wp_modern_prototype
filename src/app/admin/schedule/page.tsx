@@ -1,34 +1,27 @@
 "use client";
 import { useState } from "react";
-import { OPERATING_HOURS, BLACKOUTS, LANE_CONFIG, LANE_UTILIZATION, INSTRUCTOR_AVAILABILITY } from "@/data/mock/schedule";
+import { OPERATING_HOURS, BLACKOUTS } from "@/data/mock/schedule";
 import { MOCK_INSTRUCTORS } from "@/data/mock/instructors";
 import { MOCK_BOOKINGS } from "@/data/mock/bookings";
 import Toast from "@/components/Toast";
 import Modal from "@/components/Modal";
-import type { OperatingHours, Blackout, InstructorAvailability } from "@/data/mock/schedule";
+import type { OperatingHours, Blackout } from "@/data/mock/schedule";
 import type { Booking } from "@/data/mock/bookings";
-import { Plus, X, Pencil, Check } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-
-const ALL_SLOTS = [
-  "08:00","08:30","09:00","09:30","10:00","10:30","11:00","11:30",
-  "12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30",
-  "16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30",
-];
 
 function formatTime(t: string) {
   const [h, m] = t.split(":").map(Number);
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
 }
 
-type Tab = "hours" | "blackouts" | "lanes" | "slots";
+type Tab = "hours" | "blackouts";
 
 export default function SchedulePage() {
   const [tab, setTab] = useState<Tab>("hours");
   const [hours, setHours] = useState(OPERATING_HOURS);
   const [blackouts, setBlackouts] = useState(BLACKOUTS);
-  const [availability, setAvailability] = useState<InstructorAvailability[]>(INSTRUCTOR_AVAILABILITY);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [showAddBlackout, setShowAddBlackout] = useState(false);
   const [newBlackout, setNewBlackout] = useState({ date: "", reason: "", type: "facility" as "facility" | "instructor", instructorId: "" });
@@ -37,65 +30,6 @@ export default function SchedulePage() {
   const [showAffectedModal, setShowAffectedModal] = useState(false);
   const [affectedReason, setAffectedReason] = useState<"hours" | "blackout">("hours");
   const [pendingHours, setPendingHours] = useState<OperatingHours[] | null>(null);
-
-  // Lane count config
-  const [laneCount, setLaneCount] = useState(LANE_CONFIG.totalActiveLanes);
-  const [editingLanes, setEditingLanes] = useState(false);
-  const [laneInput, setLaneInput] = useState(String(LANE_CONFIG.totalActiveLanes));
-
-  // Instructor slots tab
-  const [slotInstId, setSlotInstId] = useState("");
-  const [slotDate, setSlotDate] = useState("");
-  const [editSlots, setEditSlots] = useState<Set<string>>(new Set());
-  const [slotsDirty, setSlotsDirty] = useState(false);
-
-  const activeInstructors = MOCK_INSTRUCTORS.filter(i => i.isActive);
-
-  function loadSlots(instructorId: string, date: string) {
-    const entry = availability.find(a => a.instructorId === instructorId && a.date === date);
-    setEditSlots(new Set(entry?.slots ?? []));
-    setSlotsDirty(false);
-  }
-
-  function handleSlotInstChange(id: string) {
-    setSlotInstId(id);
-    if (slotDate) loadSlots(id, slotDate);
-  }
-
-  function handleSlotDateChange(date: string) {
-    setSlotDate(date);
-    if (slotInstId) loadSlots(slotInstId, date);
-  }
-
-  function toggleSlot(slot: string) {
-    setEditSlots(prev => {
-      const next = new Set(prev);
-      next.has(slot) ? next.delete(slot) : next.add(slot);
-      return next;
-    });
-    setSlotsDirty(true);
-  }
-
-  function saveSlots() {
-    if (!slotInstId || !slotDate) return;
-    const instructor = MOCK_INSTRUCTORS.find(i => i.id === slotInstId);
-    const newSlots = ALL_SLOTS.filter(s => editSlots.has(s));
-    setAvailability(prev => {
-      const existing = prev.find(a => a.instructorId === slotInstId && a.date === slotDate);
-      if (existing) {
-        return prev.map(a => a.instructorId === slotInstId && a.date === slotDate ? { ...a, slots: newSlots } : a);
-      }
-      return [...prev, {
-        id: `av${Date.now()}`,
-        instructorId: slotInstId,
-        instructorName: instructor ? `${instructor.firstName} ${instructor.lastName}` : slotInstId,
-        date: slotDate,
-        slots: newSlots,
-      }];
-    });
-    setSlotsDirty(false);
-    setToast({ message: `Availability saved for ${slotDate}.`, type: "success" });
-  }
 
   function updateHour(id: string, field: keyof OperatingHours, value: string | boolean) {
     setEditHours(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
@@ -185,23 +119,10 @@ export default function SchedulePage() {
     }
   }
 
-  function saveLaneCount() {
-    const n = parseInt(laneInput, 10);
-    if (!isNaN(n) && n >= 1 && n <= 20) {
-      setLaneCount(n);
-      setEditingLanes(false);
-      setToast({ message: `Lane count updated to ${n}.`, type: "success" });
-    }
-  }
-
   const tabs: { key: Tab; label: string }[] = [
     { key: "hours", label: "Operating Hours" },
     { key: "blackouts", label: "Blackout Dates" },
-    { key: "lanes", label: "Lane Utilization" },
-    { key: "slots", label: "Instructor Slots" },
   ];
-
-  const laneSlots = Object.entries(LANE_UTILIZATION);
 
   return (
     <div className="p-6 lg:p-8">
@@ -318,189 +239,6 @@ export default function SchedulePage() {
                     <td className="px-4 py-3">
                       <button onClick={() => removeBlackout(bl.id)} className="text-[#6c757d] hover:text-[#f33b41]">
                         <X className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Lane Utilization */}
-      {tab === "lanes" && (
-        <div>
-          <div className="card p-4 mb-5 flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              {editingLanes ? (
-                <>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    className="input w-20 text-2xl font-bold text-center py-1"
-                    value={laneInput}
-                    onChange={e => setLaneInput(e.target.value)}
-                  />
-                  <button onClick={saveLaneCount} className="btn-primary text-xs py-1 px-2 flex items-center gap-1">
-                    <Check className="w-3 h-3" />Save
-                  </button>
-                  <button onClick={() => { setEditingLanes(false); setLaneInput(String(laneCount)); }} className="btn-secondary text-xs py-1 px-2">
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <p className="text-2xl font-bold text-[#212529]">{laneCount}</p>
-                    <p className="text-xs text-[#6c757d]">Active Lanes</p>
-                  </div>
-                  <button onClick={() => { setEditingLanes(true); setLaneInput(String(laneCount)); }} className="text-[#6c757d] hover:text-[#337C99]" title="Edit lane count">
-                    <Pencil className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-            </div>
-            <div className="h-10 w-px bg-gray-200" />
-            <div>
-              <p className="text-sm font-medium text-[#212529]">{LANE_CONFIG.location}</p>
-              <p className="text-xs text-[#6c757d]">Facility location</p>
-            </div>
-          </div>
-          <div className="card overflow-x-auto">
-            <div className="px-4 py-3 border-b border-gray-200">
-              <h2 className="font-semibold text-[#212529]">Today's Lane Utilization</h2>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="border-b border-gray-100">
-                <tr>
-                  {["Time", "Used / Total", "Utilization"].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {laneSlots.map(([slot, { used, total }]) => {
-                  const effectiveTotal = laneCount;
-                  const pct = Math.round((used / effectiveTotal) * 100);
-                  return (
-                    <tr key={slot} className="hover:bg-gray-50">
-                      <td className="px-4 py-2.5 font-mono text-xs text-[#6c757d]">{formatTime(slot)}</td>
-                      <td className="px-4 py-2.5 font-medium text-[#212529]">{used} / {effectiveTotal}</td>
-                      <td className="px-4 py-2.5 w-56">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-gray-100 rounded-full h-2">
-                            <div
-                              className="h-2 rounded-full transition-all"
-                              style={{
-                                width: `${Math.min(pct, 100)}%`,
-                                backgroundColor: pct >= 100 ? "#f33b41" : pct >= 75 ? "#f59e0b" : "#337C99",
-                              }}
-                            />
-                          </div>
-                          <span className="text-xs text-[#6c757d] w-8 text-right">{pct}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Instructor Slots */}
-      {tab === "slots" && (
-        <div>
-          <p className="text-sm text-[#6c757d] mb-5">
-            Manually set the time slots an instructor is available on a specific date. Check a slot to mark it available; uncheck to remove it.
-          </p>
-          <div className="card p-5 mb-5">
-            <div className="flex flex-wrap gap-4 mb-5">
-              <div className="flex-1 min-w-44">
-                <label className="label">Instructor</label>
-                <select className="input" value={slotInstId} onChange={e => handleSlotInstChange(e.target.value)}>
-                  <option value="">Select instructor…</option>
-                  {activeInstructors.map(i => (
-                    <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex-1 min-w-44">
-                <label className="label">Date</label>
-                <input type="date" className="input" value={slotDate} onChange={e => handleSlotDateChange(e.target.value)} />
-              </div>
-            </div>
-
-            {slotInstId && slotDate ? (
-              <>
-                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-5">
-                  {ALL_SLOTS.map(slot => {
-                    const checked = editSlots.has(slot);
-                    return (
-                      <button
-                        key={slot}
-                        type="button"
-                        onClick={() => toggleSlot(slot)}
-                        className={`border rounded-lg px-2 py-1.5 text-xs transition-all text-center ${
-                          checked
-                            ? "border-[#337C99] bg-[#337C99]/10 text-[#337C99] font-semibold"
-                            : "border-gray-200 text-[#6c757d] hover:border-gray-300"
-                        }`}
-                      >
-                        {formatTime(slot)}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={saveSlots}
-                    disabled={!slotsDirty}
-                    className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Save Slots
-                  </button>
-                  <span className="text-xs text-[#6c757d]">{editSlots.size} slot(s) selected</span>
-                  {!slotsDirty && slotInstId && slotDate && (
-                    <span className="text-xs text-green-600">Saved</span>
-                  )}
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-[#6c757d]">Select an instructor and date above to edit their available slots.</p>
-            )}
-          </div>
-
-          {/* Current availability summary */}
-          <div className="card overflow-x-auto">
-            <div className="px-4 py-3 border-b border-gray-200">
-              <h2 className="font-semibold text-[#212529]">Configured Availability</h2>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="border-b border-gray-100">
-                <tr>
-                  {["Instructor", "Date", "Slots Available", ""].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {availability.length === 0 ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center text-[#6c757d]">No availability configured</td></tr>
-                ) : availability.slice().sort((a, b) => a.date.localeCompare(b.date)).map(av => (
-                  <tr key={av.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-[#212529]">{av.instructorName}</td>
-                    <td className="px-4 py-3 text-[#6c757d]">{av.date}</td>
-                    <td className="px-4 py-3 text-[#6c757d]">{av.slots.length} slot(s)</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => { setSlotInstId(av.instructorId); setSlotDate(av.date); loadSlots(av.instructorId, av.date); setTab("slots"); }}
-                        className="text-xs text-[#337C99] hover:underline"
-                      >
-                        Edit
                       </button>
                     </td>
                   </tr>

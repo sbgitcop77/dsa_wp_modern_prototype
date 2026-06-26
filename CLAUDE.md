@@ -51,10 +51,9 @@ src/
       schedule/page.tsx
       reports/page.tsx
       notifications/page.tsx
-      import/page.tsx
       settings/page.tsx
     book/page.tsx             # 5-step booking wizard
-    cancel/[ref]/page.tsx     # Booking cancellation by token
+    manage/[ref]/page.tsx     # Manage booking — cancel or reschedule
     [service]/page.tsx        # All service/marketing pages (see list below)
   components/
     Header.tsx                # Fixed nav, transparent→scrolled, mobile drawer
@@ -105,7 +104,7 @@ src/
 | `/contact-us` | Contact |
 | `/privacy` | Privacy Policy |
 | `/book` | 5-step booking wizard |
-| `/cancel/[ref]` | Cancel booking by ref token |
+| `/manage/[ref]` | Manage booking — cancel or reschedule |
 
 All service/detail pages use `ServicePageLayout` — pass props, no bespoke layout needed.
 

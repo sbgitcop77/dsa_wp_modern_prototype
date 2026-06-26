@@ -1,5 +1,41 @@
 import Link from "next/link";
 import Image from "next/image";
+import { OPERATING_HOURS } from "@/data/mock/schedule";
+
+const DAY_ABBR: Record<string, string> = {
+  Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed", Thursday: "Thu",
+  Friday: "Fri", Saturday: "Sat", Sunday: "Sun",
+};
+
+function fmtTime(t: string): string {
+  const [h, m] = t.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return m === 0 ? `${hour} ${suffix}` : `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+function groupedHours() {
+  const rows: { label: string; value: string }[] = [];
+  let i = 0;
+  while (i < OPERATING_HOURS.length) {
+    const cur = OPERATING_HOURS[i];
+    let j = i + 1;
+    while (
+      j < OPERATING_HOURS.length &&
+      OPERATING_HOURS[j].isClosed === cur.isClosed &&
+      OPERATING_HOURS[j].openTime === cur.openTime &&
+      OPERATING_HOURS[j].closeTime === cur.closeTime
+    ) j++;
+    const start = DAY_ABBR[cur.dayOfWeek];
+    const end = j - 1 > i ? DAY_ABBR[OPERATING_HOURS[j - 1].dayOfWeek] : null;
+    rows.push({
+      label: end ? `${start}–${end}` : start,
+      value: cur.isClosed ? "Closed" : `${fmtTime(cur.openTime)} – ${fmtTime(cur.closeTime)}`,
+    });
+    i = j;
+  }
+  return rows;
+}
 
 const FOOTER_COL1 = [
   { label: "Home", href: "/" },
@@ -96,9 +132,10 @@ export default function Footer() {
               <a href="tel:+14438651639" className="block text-white/55 hover:text-white text-sm transition-colors">
                 (443) 865-1639
               </a>
-              <div className="text-white/55 text-sm">
-                <p>Mon–Fri: 8:00 AM – 8:00 PM</p>
-                <p>Sat: 9:00 AM – 5:00 PM</p>
+              <div className="text-white/55 text-sm space-y-0.5">
+                {groupedHours().map(row => (
+                  <p key={row.label}>{row.label}: {row.value}</p>
+                ))}
               </div>
             </address>
           </div>
@@ -111,8 +148,8 @@ export default function Footer() {
           <p>© 2026 The Diamond Sports Academy. All Rights Reserved.</p>
           <p>
             Designed by{" "}
-            <a href="https://devonsprague.com/" target="_blank" rel="noopener noreferrer" className="hover:text-white/70 transition-colors">
-              Devon Sprague
+            <a href="https://www.akikatech.com/" target="_blank" rel="noopener noreferrer" className="hover:text-white/70 transition-colors">
+              Akika Technologies
             </a>
           </p>
         </div>

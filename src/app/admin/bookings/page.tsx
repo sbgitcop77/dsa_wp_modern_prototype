@@ -131,7 +131,7 @@ export default function BookingsPage() {
   }
 
   function exportCSV() {
-    const headers = ["Reference", "Customer", "Instructor", "Date", "Time", "Duration (min)", "Type", "Status"];
+    const headers = ["Reference", "Customer", "Instructor", "Date", "Time", "Duration (min)", "Type", "Booked By", "Relationship", "Child's Age", "Status"];
     const rows = filtered.map(b => [
       b.bookingReference,
       b.customerName,
@@ -139,7 +139,10 @@ export default function BookingsPage() {
       b.date,
       b.startTime,
       b.durationMinutes,
-      [(b.isRecurring ? "Recurring" : "Single-session"), b.isForChild && "Child"].filter(Boolean).join("|"),
+      b.isRecurring ? "Recurring" : "Single-session",
+      b.bookedByName ?? "",
+      b.relationshipToCustomer ?? "",
+      b.childAge ?? "",
       b.status,
     ]);
     const csv = [headers, ...rows]
@@ -206,31 +209,56 @@ export default function BookingsPage() {
         <table className="w-full text-sm">
           <thead className="border-b border-gray-200">
             <tr>
-              {["Reference","Customer","Instructor","Date","Time","Duration","Type","Status"].map(h => (
-                <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">{h}</th>
+              {["Reference","Customer","Instructor","Date"].map(h => (
+                <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
+              <th className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide whitespace-nowrap">
+                <div>Time /</div>
+                <div className="font-normal normal-case tracking-normal text-[#6c757d]/70">Duration</div>
+              </th>
+              {["Type","Child's Age","Status"].map(h => (
+                <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide whitespace-nowrap">{h}</th>
+              ))}
+              <th className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">
+                <div>Booked By /</div>
+                <div className="font-normal normal-case tracking-normal text-[#6c757d]/70">Relationship</div>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-[#6c757d] text-sm">No bookings found</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-[#6c757d] text-sm">No bookings found</td></tr>
             ) : filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(b => (
               <tr key={b.id} onClick={() => { setSelected(b); setCancelScope("single"); setCancelNote(""); }} className="hover:bg-gray-50 cursor-pointer">
                 <td className="px-4 py-3 font-mono text-xs text-[#337C99]">{b.bookingReference}</td>
                 <td className="px-4 py-3 font-medium text-[#212529]">{b.customerName}</td>
                 <td className="px-4 py-3 text-[#6c757d]">{b.instructorName}</td>
-                <td className="px-4 py-3 text-[#6c757d]">{formatDate(b.date)}</td>
-                <td className="px-4 py-3 text-[#6c757d]">{formatTime(b.startTime)}</td>
-                <td className="px-4 py-3 text-[#6c757d]">{b.durationMinutes}m</td>
+                <td className="px-4 py-3 text-[#6c757d] whitespace-nowrap">{formatDate(b.date)}</td>
+                <td className="px-4 py-3 text-[#6c757d]">
+                  <div className="whitespace-nowrap">{formatTime(b.startTime)} – {formatTime(b.endTime)} /</div>
+                  <div className="text-xs">{b.durationMinutes} min</div>
+                </td>
                 <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex items-center gap-1">
                     {b.isRecurring
                       ? <span className="badge-blue">Recurring</span>
                       : <span className="badge-orange" style={{ color: "#131313" }}>Single-session</span>}
-                    {b.isForChild && <span className="badge-purple">Child</span>}
+                    {b.isForChild && <span className="text-[#6c757d] text-xs">/</span>}
                   </div>
+                  {b.isForChild && <span className="badge-purple mt-0.5">Child</span>}
+                </td>
+                <td className="px-4 py-3 text-[#6c757d] text-center">
+                  {b.isForChild && b.childAge ? b.childAge : <span>—</span>}
                 </td>
                 <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
+                <td className="px-4 py-3 text-[#6c757d]">
+                  {b.isForChild && b.bookedByName ? (
+                    <>
+                      <div className="text-[#212529] font-medium">{b.bookedByName} /</div>
+                      <div className="text-xs capitalize">{b.relationshipToCustomer}</div>
+                    </>
+                  ) : <span>—</span>}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -286,7 +314,13 @@ export default function BookingsPage() {
             <Row label="Time" value={`${formatTime(selected.startTime)} – ${formatTime(selected.endTime)}`} />
             <Row label="Duration" value={`${selected.durationMinutes} min`} />
             <Row label="Lane" value={`Lane ${selected.laneAssigned}`} />
-            {selected.isForChild && <Row label="Child" value={`Age ${selected.childAge} (${selected.relationshipToCustomer})`} />}
+            {selected.isForChild && (
+              <>
+                <Row label="Child's Age" value={`${selected.childAge} yrs`} />
+                <Row label="Booked By" value={selected.bookedByName ?? selected.customerName} />
+                <Row label="Relationship" value={selected.relationshipToCustomer ?? ""} />
+              </>
+            )}
             <div className="flex gap-1 flex-wrap pt-1">
               {selected.isRecurring
                 ? <span className="badge-blue">Recurring</span>

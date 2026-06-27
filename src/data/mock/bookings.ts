@@ -17,6 +17,7 @@ export type Booking = {
   isForChild: boolean;
   childAge?: number;
   relationshipToCustomer?: string;
+  bookedByName?: string;
   isRecurring: boolean;
   recurringSeriesId?: string;
   isWalkIn: boolean;
@@ -92,6 +93,7 @@ function makeBooking(
   custId: string, custName: string,
   dateStr: string, startTime: string, dur: 30 | 60,
   isForChild: boolean, childAge: number | undefined, relationship: string | undefined,
+  bookedByName: string | undefined,
   isRecurring: boolean, recurringSeriesId: string | undefined,
   lane: number
 ): Booking {
@@ -117,6 +119,7 @@ function makeBooking(
     isForChild,
     childAge,
     relationshipToCustomer: relationship,
+    bookedByName,
     isRecurring,
     recurringSeriesId,
     isWalkIn: false,
@@ -150,6 +153,7 @@ function generateBookings(): Booking[] {
     isForChild: boolean;
     childAge: number | undefined;
     relationship: string | undefined;
+    bookedByName: string | undefined;
     dates: string[];
   }
 
@@ -163,7 +167,8 @@ function generateBookings(): Booking[] {
     const dur: 30 | 60 = seriesRng.bool(0.58) ? 60 : 30;
     const isForChild = seriesRng.bool(0.22);
     const childAge = isForChild ? (7 + seriesRng.int(10)) : undefined;
-    const relationship = isForChild ? "Parent" : undefined;
+    const relationship = isForChild ? seriesRng.pick(["Parent", "Guardian", "Coach"]) : undefined;
+    const bookedByName = isForChild ? seriesRng.pick(CUSTOMER_POOL).name : undefined;
     const sessionCount = 4 + seriesRng.int(9);
     const startOffsetDays = seriesRng.int(80);
 
@@ -194,6 +199,7 @@ function generateBookings(): Booking[] {
       isForChild,
       childAge,
       relationship,
+      bookedByName,
       dates,
     });
   }
@@ -209,7 +215,7 @@ function generateBookings(): Booking[] {
         series.instId, series.instName,
         series.custId, series.custName,
         dateStr, startTime, series.dur,
-        series.isForChild, series.childAge, series.relationship,
+        series.isForChild, series.childAge, series.relationship, series.bookedByName,
         true, series.id,
         0 // placeholder, will be set in day loop
       );
@@ -301,14 +307,15 @@ function generateBookings(): Booking[] {
 
       const isForChild = dRng.bool(0.2);
       const childAge = isForChild ? (7 + dRng.int(10)) : undefined;
-      const relationship = isForChild ? "Parent" : undefined;
+      const relationship = isForChild ? dRng.pick(["Parent", "Guardian", "Coach"]) : undefined;
+      const bookedByName = isForChild ? dRng.pick(CUSTOMER_POOL).name : undefined;
 
       const booking = makeBooking(
         counter++,
         inst.id, inst.name,
         cust.id, cust.name,
         dateStr, startTime, dur,
-        isForChild, childAge, relationship,
+        isForChild, childAge, relationship, bookedByName,
         false, undefined,
         lane
       );

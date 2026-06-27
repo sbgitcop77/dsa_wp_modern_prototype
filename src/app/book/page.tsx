@@ -18,11 +18,14 @@ type BookingForm = {
   date: string;
   time: string;
   duration: 30 | 60;
+  sessionFor: "" | "self" | "child";
+  additionalInstructions: string;
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
-  isForChild: boolean;
+  childFirstName: string;
+  childLastName: string;
   childAge: string;
   relationship: string;
   isRecurring: boolean;
@@ -36,11 +39,14 @@ const INITIAL_FORM: BookingForm = {
   date: "",
   time: "",
   duration: 60,
+  sessionFor: "",
+  additionalInstructions: "",
   firstName: "",
   lastName: "",
   email: "",
   phone: "",
-  isForChild: false,
+  childFirstName: "",
+  childLastName: "",
   childAge: "",
   relationship: "",
   isRecurring: false,
@@ -75,7 +81,7 @@ function generateRef() {
   return `DSA-${ds}-${num}`;
 }
 
-const STEPS = ["Instructor", "Date & Time", "Your Details", "Options", "Review"];
+const STEPS = ["Instructor", "Date & Time", "Participant Details", "Options", "Review"];
 
 export default function BookPage() {
   const [step, setStep] = useState<Step>(1);
@@ -438,56 +444,138 @@ export default function BookPage() {
             </div>
           )}
 
-          {/* Step 3: Customer Details */}
+          {/* Step 3: Participant Details */}
           {step === 3 && (
             <div>
-              <h2 className="text-lg font-bold text-[#212529] mb-1">Your Details</h2>
-              <p className="text-sm text-[#6c757d] mb-5">We'll send your confirmation to the email below.</p>
-              <div className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">First Name</label>
-                    <input className="input" required value={form.firstName} onChange={e => set("firstName", e.target.value)} placeholder="First name" />
+              <h2 className="text-lg font-bold text-[#212529] mb-1">Participant Details</h2>
+              <p className="text-sm text-[#6c757d] mb-5">Who is this session for?</p>
+
+              {/* Session for selection */}
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {([
+                  { value: "self", title: "Myself", sub: "I am the participant" },
+                  { value: "child", title: "A Child", sub: "I am booking on their behalf" },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => set("sessionFor", opt.value)}
+                    className={`border rounded-xl p-4 text-center transition-all ${
+                      form.sessionFor === opt.value
+                        ? "border-[#337C99] bg-[#337C99]/5"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div className={`text-sm font-semibold mb-0.5 ${form.sessionFor === opt.value ? "text-[#337C99]" : "text-[#212529]"}`}>
+                      {opt.title}
+                    </div>
+                    <div className="text-xs text-[#6c757d]">{opt.sub}</div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Self form */}
+              {form.sessionFor === "self" && (
+                <div className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">First Name</label>
+                      <input className="input" required value={form.firstName} onChange={e => set("firstName", e.target.value)} placeholder="First name" />
+                    </div>
+                    <div>
+                      <label className="label">Last Name</label>
+                      <input className="input" required value={form.lastName} onChange={e => set("lastName", e.target.value)} placeholder="Last name" />
+                    </div>
                   </div>
                   <div>
-                    <label className="label">Last Name</label>
-                    <input className="input" required value={form.lastName} onChange={e => set("lastName", e.target.value)} placeholder="Last name" />
+                    <label className="label">Email</label>
+                    <input className="input" type="email" required value={form.email} onChange={e => { set("email", e.target.value); setFlagError(false); }} placeholder="you@example.com" />
+                  </div>
+                  <div>
+                    <label className="label">Phone <span className="text-[#6c757d] font-normal">(optional)</span></label>
+                    <input className="input" type="tel" value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="443-555-0000" />
                   </div>
                 </div>
-                <div>
-                  <label className="label">Email</label>
-                  <input className="input" type="email" required value={form.email} onChange={e => { set("email", e.target.value); setFlagError(false); }} placeholder="you@example.com" />
-                </div>
-                <div>
-                  <label className="label">Phone <span className="text-[#6c757d] font-normal">(optional)</span></label>
-                  <input className="input" type="tel" value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="443-555-0000" />
-                </div>
-                <div className="border border-gray-200 rounded-xl p-4">
-                  <label className="flex items-center gap-3 cursor-pointer mb-3">
-                    <input type="checkbox" checked={form.isForChild} onChange={e => set("isForChild", e.target.checked)} className="rounded" />
-                    <span className="font-medium text-[#212529] text-sm">This session is for a child</span>
-                  </label>
-                  {form.isForChild && (
-                    <div className="grid sm:grid-cols-2 gap-3 mt-2">
-                      <div>
-                        <label className="label">Child's Age</label>
-                        <input className="input" type="number" min="5" max="18" value={form.childAge} onChange={e => set("childAge", e.target.value)} placeholder="Age" />
+              )}
+
+              {/* Child form */}
+              {form.sessionFor === "child" && (
+                <div className="space-y-6">
+                  {/* Child Details */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#212529] pb-2 mb-3 border-b border-gray-200">Child Details</h3>
+                    <div className="space-y-4">
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="label">First Name</label>
+                          <input className="input" required value={form.childFirstName} onChange={e => set("childFirstName", e.target.value)} placeholder="Child's first name" />
+                        </div>
+                        <div>
+                          <label className="label">Last Name</label>
+                          <input className="input" required value={form.childLastName} onChange={e => set("childLastName", e.target.value)} placeholder="Child's last name" />
+                        </div>
                       </div>
-                      <div>
-                        <label className="label">Your Relationship</label>
-                        <select className="input" value={form.relationship} onChange={e => set("relationship", e.target.value)}>
-                          <option value="">Select…</option>
-                          <option value="parent">Parent</option>
-                          <option value="guardian">Guardian</option>
-                          <option value="coach">Coach</option>
-                        </select>
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="label">Age</label>
+                          <input className="input" type="number" min="5" max="18" required value={form.childAge} onChange={e => set("childAge", e.target.value)} placeholder="Age" />
+                        </div>
+                        <div>
+                          <label className="label">Your Relationship</label>
+                          <select className="input" value={form.relationship} onChange={e => set("relationship", e.target.value)}>
+                            <option value="">Select…</option>
+                            <option value="parent">Parent</option>
+                            <option value="guardian">Guardian</option>
+                            <option value="coach">Coach</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Booked By */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#212529] pb-2 mb-3 border-b border-gray-200">Booked By</h3>
+                    <div className="space-y-4">
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="label">First Name</label>
+                          <input className="input" required value={form.firstName} onChange={e => set("firstName", e.target.value)} placeholder="Your first name" />
+                        </div>
+                        <div>
+                          <label className="label">Last Name</label>
+                          <input className="input" required value={form.lastName} onChange={e => set("lastName", e.target.value)} placeholder="Your last name" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="label">Email</label>
+                        <input className="input" type="email" required value={form.email} onChange={e => { set("email", e.target.value); setFlagError(false); }} placeholder="you@example.com" />
+                      </div>
+                      <div>
+                        <label className="label">Phone</label>
+                        <input className="input" type="tel" required value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="443-555-0000" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Additional Instructions — shown for both Self and Child */}
+              {form.sessionFor && (
+                <div className="mt-6">
+                  <label className="label">Additional Instructions <span className="text-[#6c757d] font-normal">(optional)</span></label>
+                  <textarea
+                    className="input resize-none"
+                    rows={3}
+                    value={form.additionalInstructions}
+                    onChange={e => set("additionalInstructions", e.target.value)}
+                    placeholder="Any notes for your instructor — injuries, goals, areas to focus on…"
+                  />
+                </div>
+              )}
+
               {flagError && (
-                <div className="border border-red-200 bg-red-50 rounded-lg p-3 text-sm text-red-800">
+                <div className="mt-4 border border-red-200 bg-red-50 rounded-lg p-3 text-sm text-red-800">
                   We're unable to process bookings for this account. Please contact us directly for assistance.
                 </div>
               )}
@@ -495,7 +583,11 @@ export default function BookPage() {
                 <button onClick={() => setStep(2)} className="btn-secondary">← Back</button>
                 <button
                   onClick={handleStep3Next}
-                  disabled={!form.firstName || !form.lastName || !form.email}
+                  disabled={
+                    !form.sessionFor ||
+                    (form.sessionFor === "self" && (!form.firstName || !form.lastName || !form.email)) ||
+                    (form.sessionFor === "child" && (!form.childFirstName || !form.childLastName || !form.childAge || !form.relationship || !form.firstName || !form.lastName || !form.email || !form.phone))
+                  }
                   className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next →
@@ -601,11 +693,20 @@ export default function BookPage() {
                 <SummaryRow label="Time" value={`${formatTime(form.time)} – ${formatTime(endTime())}`} />
                 <SummaryRow label="Duration" value={`${form.duration} minutes`} />
                 <div className="border-t border-gray-200 pt-3">
-                  <SummaryRow label="Name" value={`${form.firstName} ${form.lastName}`} />
-                  <SummaryRow label="Email" value={form.email} />
-                  {form.phone && <SummaryRow label="Phone" value={form.phone} />}
-                  {form.isForChild && (
-                    <SummaryRow label="Session for" value={`Child (age ${form.childAge}) — ${form.relationship}`} />
+                  {form.sessionFor === "child" ? (
+                    <>
+                      <SummaryRow label="Participant" value={`${form.childFirstName} ${form.childLastName} (age ${form.childAge})`} />
+                      <SummaryRow label="Relationship" value={form.relationship} />
+                      <SummaryRow label="Booked By" value={`${form.firstName} ${form.lastName}`} />
+                      <SummaryRow label="Email" value={form.email} />
+                      <SummaryRow label="Phone" value={form.phone} />
+                    </>
+                  ) : (
+                    <>
+                      <SummaryRow label="Name" value={`${form.firstName} ${form.lastName}`} />
+                      <SummaryRow label="Email" value={form.email} />
+                      {form.phone && <SummaryRow label="Phone" value={form.phone} />}
+                    </>
                   )}
                 </div>
                 <div className="border-t border-gray-200 pt-3">
@@ -614,6 +715,11 @@ export default function BookPage() {
                     value={form.isRecurring ? `Recurring — ${form.recurringWeeks} weeks` : "Single session"}
                   />
                 </div>
+                {form.additionalInstructions && (
+                  <div className="border-t border-gray-200 pt-3">
+                    <SummaryRow label="Notes" value={form.additionalInstructions} />
+                  </div>
+                )}
               </div>
 
               <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 text-xs text-amber-800 mb-6">

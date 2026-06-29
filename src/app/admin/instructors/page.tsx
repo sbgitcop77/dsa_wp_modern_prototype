@@ -1,585 +1,629 @@
 "use client";
-import { useState } from "react";
-import { MOCK_INSTRUCTORS } from "@/data/mock/instructors";
-import { MOCK_BOOKINGS } from "@/data/mock/bookings";
-import { INSTRUCTOR_AVAILABILITY } from "@/data/mock/schedule";
+import { useState, useMemo } from "react";
+import { MOCK_INSTRUCTORS, DEFAULT_AVAILABILITY } from "@/data/mock/instructors";
+import type { Instructor, InstructorSchedule, DaySlot } from "@/data/mock/instructors";
 import Toast from "@/components/Toast";
-import Modal from "@/components/Modal";
-import type { Instructor } from "@/data/mock/instructors";
-import type { InstructorAvailability } from "@/data/mock/schedule";
-import { Pencil, X, Check, Plus } from "lucide-react";
+import { Calendar, Pencil, Trash2, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 
 type PageTab = "instructors" | "slots";
-type View = "list" | "profile";
+type SortCol = "name" | "speciality" | "type" | "status";
+type SortDir = "asc" | "desc";
 
-const EMPTY_FORM = { firstName: "", lastName: "", email: "", speciality: "" };
+const INSTRUCTOR_TYPES = ["Lane Instructor", "Wait Room"];
 
-const ALL_SLOTS = [
-  "09:00","09:30","10:00","10:30","11:00","11:30",
-  "12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30",
-  "16:00","16:30","17:00","17:30","18:00","18:30","19:00","19:30",
-  "20:00","20:30",
-];
+const TYPE_HINTS: Record<string, string> = {
+  "Lane Instructor": "Has a dedicated lane — booking checks lane capacity before confirming.",
+  "Wait Room": "No lane required — can be booked even when all lanes are occupied.",
+};
 
-function formatTime(t: string) {
-  const [h, m] = t.split(":").map(Number);
-  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const TIME_OPTIONS: { value: string; label: string }[] = (() => {
+  const opts = [];
+  for (let h = 6; h <= 22; h++) {
+    for (const m of [0, 30]) {
+      if (h === 22 && m === 30) break;
+      const value = `${String(h).padStart(2, "0")}:${m === 0 ? "00" : "30"}`;
+      const hour12 = h % 12 || 12;
+      const ampm = h < 12 ? "AM" : "PM";
+      const label = `${hour12}:${m === 0 ? "00" : "30"} ${ampm}`;
+      opts.push({ value, label });
+    }
+  }
+  return opts;
+})();
+
+const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", speciality: "", type: "Lane Instructor" };
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function formatDate(d: string) {
-  const [y, m, day] = d.split("-");
-  return `${m}-${day}-${y}`;
+function getMonthStart(offset: number): Date {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth() + offset, 1);
 }
 
-function currentTimeStr() {
-  const now = new Date();
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+// Returns 42 cells (6 rows × 7 cols): null = empty leading/trailing cell
+function computeCalendarCells(offset: number): (Date | null)[] {
+  const start = getMonthStart(offset);
+  const year = start.getFullYear();
+  const month = start.getMonth();
+  const firstDow = start.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
 }
+
+function formatMonthHeader(offset: number): string {
+  return getMonthStart(offset).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+function buildMonthDraft(inst: Instructor, cells: (Date | null)[]): Record<string, DaySlot> {
+  const draft: Record<string, DaySlot> = {};
+  cells.forEach(date => {
+    if (!date) return;
+    const dateStr = toDateStr(date);
+    const scheduled = inst.availability.scheduledDates[dateStr];
+    draft[dateStr] = scheduled ? { ...scheduled } : { ...inst.availability.recurring[date.getDay()] };
+  });
+  return draft;
+}
+
+function formatHourRange(start: string, end: string): string {
+  const fmtH = (t: string) => { const h = parseInt(t); return { h: h % 12 || 12, p: h >= 12 ? "PM" : "AM" }; };
+  const s = fmtH(start); const e = fmtH(end);
+  return s.p === e.p ? `${s.h}–${e.h} ${e.p}` : `${s.h} ${s.p}–${e.h} ${e.p}`;
+}
+
+function deepCopyRecurring(r: InstructorSchedule["recurring"]): InstructorSchedule["recurring"] {
+  const copy: InstructorSchedule["recurring"] = {};
+  for (let d = 0; d <= 6; d++) copy[d] = { ...r[d] };
+  return copy;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function InstructorsPage() {
   const [pageTab, setPageTab] = useState<PageTab>("instructors");
 
-  // Instructors tab state
+  // ── Instructors tab state ────────────────────────────────────────────────
   const [instructors, setInstructors] = useState(MOCK_INSTRUCTORS);
-  const [view, setView] = useState<View>("list");
-  const [selected, setSelected] = useState<Instructor | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState<Partial<Instructor>>({});
-  const [deactivateConfirm, setDeactivateConfirm] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [addForm, setAddForm] = useState(EMPTY_FORM);
+  const [search, setSearch] = useState("");
+  const [typeFilter] = useState("All");
+  const [sortCol, setSortCol] = useState<SortCol>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [formMode, setFormMode] = useState<"add" | "edit" | null>(null);
+  const [editTarget, setEditTarget] = useState<Instructor | null>(null);
+  const [form, setForm] = useState(EMPTY_FORM);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
-  // Availability slots tab state
-  const [availability, setAvailability] = useState<InstructorAvailability[]>(INSTRUCTOR_AVAILABILITY);
+  // ── Slots tab state ──────────────────────────────────────────────────────
   const [slotInstId, setSlotInstId] = useState("");
-  const [slotDate, setSlotDate] = useState("");
-  const [editSlots, setEditSlots] = useState<Set<string>>(new Set());
-  const [slotsDirty, setSlotsDirty] = useState(false);
-
-  // ── Instructor functions ─────────────────────────────────────────────────
-  function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    const newInstructor: Instructor = {
-      id: `i${Date.now()}`,
-      firstName: addForm.firstName.trim(),
-      lastName: addForm.lastName.trim(),
-      email: addForm.email.trim(),
-      speciality: addForm.speciality.trim(),
-      isActive: true,
-      totalSessionsDelivered: 0,
-      upcomingSessions: 0,
-      createdAt: new Date().toISOString(),
-    };
-    setInstructors(prev => [...prev, newInstructor]);
-    setAddForm(EMPTY_FORM);
-    setShowAdd(false);
-    setToast({ message: `${newInstructor.firstName} ${newInstructor.lastName} added as instructor.`, type: "success" });
-  }
-
-  function openProfile(inst: Instructor) {
-    setSelected(inst);
-    setView("profile");
-    setEditing(false);
-  }
-
-  function startEdit() {
-    if (!selected) return;
-    setEditForm({ firstName: selected.firstName, lastName: selected.lastName, email: selected.email, speciality: selected.speciality });
-    setEditing(true);
-  }
-
-  function saveEdit() {
-    if (!selected) return;
-    setInstructors(prev => prev.map(i => i.id === selected.id ? { ...i, ...editForm } : i));
-    setSelected(prev => prev ? { ...prev, ...editForm } : prev);
-    setEditing(false);
-    setToast({ message: "Instructor updated.", type: "success" });
-  }
-
-  function toggleActive(id: string) {
-    const now = new Date().toISOString();
-    setInstructors(prev => prev.map(i => {
-      if (i.id !== id) return i;
-      return i.isActive
-        ? { ...i, isActive: false, deactivatedAt: now }
-        : { ...i, isActive: true, deactivatedAt: undefined };
-    }));
-    setSelected(prev => {
-      if (!prev) return prev;
-      return prev.isActive
-        ? { ...prev, isActive: false, deactivatedAt: now }
-        : { ...prev, isActive: true, deactivatedAt: undefined };
-    });
-    setToast({ message: selected?.isActive ? "Instructor deactivated." : "Instructor reactivated.", type: "info" });
-    setDeactivateConfirm(false);
-  }
-
-  // ── Slot functions ───────────────────────────────────────────────────────
-  function loadSlots(instructorId: string, date: string) {
-    const entry = availability.find(a => a.instructorId === instructorId && a.date === date);
-    setEditSlots(new Set(entry?.slots ?? []));
-    setSlotsDirty(false);
-  }
-
-  function handleSlotInstChange(id: string) {
-    setSlotInstId(id);
-    if (slotDate) loadSlots(id, slotDate);
-  }
-
-  function handleSlotDateChange(date: string) {
-    setSlotDate(date);
-    if (slotInstId) loadSlots(slotInstId, date);
-  }
-
-  function toggleSlot(slot: string) {
-    setEditSlots(prev => {
-      const next = new Set(prev);
-      next.has(slot) ? next.delete(slot) : next.add(slot);
-      return next;
-    });
-    setSlotsDirty(true);
-  }
-
-  function saveSlots() {
-    if (!slotInstId || !slotDate) return;
-    const instructor = instructors.find(i => i.id === slotInstId);
-    const newSlots = ALL_SLOTS.filter(s => editSlots.has(s));
-    setAvailability(prev => {
-      const existing = prev.find(a => a.instructorId === slotInstId && a.date === slotDate);
-      if (existing) {
-        return prev.map(a => a.instructorId === slotInstId && a.date === slotDate ? { ...a, slots: newSlots } : a);
-      }
-      return [...prev, {
-        id: `av${Date.now()}`,
-        instructorId: slotInstId,
-        instructorName: instructor ? `${instructor.firstName} ${instructor.lastName}` : slotInstId,
-        date: slotDate,
-        slots: newSlots,
-      }];
-    });
-    setSlotsDirty(false);
-    setToast({ message: `Availability saved for ${slotDate}.`, type: "success" });
-  }
+  const [monthOffset, setMonthOffset] = useState(0);
+  const [dateDraft, setDateDraft] = useState<Record<string, DaySlot>>({});
+  const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
+  const [savedFeedback, setSavedFeedback] = useState(false);
 
   // ── Derived ──────────────────────────────────────────────────────────────
-  const activeInstructors = instructors.filter(i => i.isActive);
-  const instructorBookings = selected
-    ? MOCK_BOOKINGS.filter(b => b.instructorId === selected.id && b.status !== "cancelled")
-    : [];
-  const today = new Date().toISOString().slice(0, 10);
-  const upcomingInstructorBookings = instructorBookings.filter(b => b.date >= today);
-  const visibleSlots = slotDate === today
-    ? ALL_SLOTS.filter(s => s > currentTimeStr())
-    : ALL_SLOTS;
+  const calendarCells = useMemo(() => computeCalendarCells(monthOffset), [monthOffset]);
 
-  // ── Tab bar (shared across all views) ───────────────────────────────────
+  const filtered = useMemo(() => {
+    let result = instructors.filter(i => {
+      if (typeFilter !== "All" && i.type !== typeFilter) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!`${i.firstName} ${i.lastName} ${i.speciality}`.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+    return [...result].sort((a, b) => {
+      let av = "", bv = "";
+      switch (sortCol) {
+        case "name":       av = `${a.firstName} ${a.lastName}`; bv = `${b.firstName} ${b.lastName}`; break;
+        case "speciality": av = a.speciality; bv = b.speciality; break;
+        case "type":       av = a.type; bv = b.type; break;
+        case "status":     av = a.isActive ? "0" : "1"; bv = b.isActive ? "0" : "1"; break;
+      }
+      return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+  }, [instructors, search, typeFilter, sortCol, sortDir]);
+
+  // ── Instructors tab functions ────────────────────────────────────────────
+  function handleSort(col: SortCol) {
+    if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortCol(col); setSortDir("asc"); }
+  }
+
+  function openAdd() { setForm(EMPTY_FORM); setEditTarget(null); setFormMode("add"); }
+
+  function openEdit(inst: Instructor) {
+    setForm({ firstName: inst.firstName, lastName: inst.lastName, email: inst.email, phone: inst.phone, speciality: inst.speciality, type: inst.type });
+    setEditTarget(inst);
+    setFormMode("edit");
+  }
+
+  function handleDelete(id: string) {
+    setInstructors(prev => prev.filter(i => i.id !== id));
+    if (editTarget?.id === id) setFormMode(null);
+    if (slotInstId === id) { setSlotInstId(""); setDateDraft({}); setSelectedDateStr(null); }
+    setToast({ message: "Instructor removed.", type: "info" });
+  }
+
+  function handleSave() {
+    if (!form.firstName.trim() || !form.lastName.trim() || !form.speciality.trim()) return;
+    if (formMode === "add") {
+      const newInst: Instructor = {
+        id: `i${Date.now()}`,
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        speciality: form.speciality.trim(),
+        type: form.type,
+        instructor_type: "lane",
+        isActive: true,
+        totalSessionsDelivered: 0,
+        upcomingSessions: 0,
+        createdAt: new Date().toISOString(),
+        availability: {
+          recurring: deepCopyRecurring(DEFAULT_AVAILABILITY.recurring),
+          scheduledDates: {},
+          frozen: false,
+        },
+      };
+      setInstructors(prev => [...prev, newInst]);
+      setToast({ message: `${newInst.firstName} ${newInst.lastName} added.`, type: "success" });
+    } else if (editTarget) {
+      setInstructors(prev => prev.map(i =>
+        i.id === editTarget.id
+          ? { ...i, firstName: form.firstName.trim(), lastName: form.lastName.trim(), email: form.email.trim(), phone: form.phone.trim(), speciality: form.speciality.trim(), type: form.type }
+          : i
+      ));
+      setToast({ message: "Instructor updated.", type: "success" });
+    }
+    setFormMode(null);
+    setEditTarget(null);
+  }
+
+  function goToSlots(instId: string) {
+    loadInstructorSchedule(instId);
+    setPageTab("slots");
+  }
+
+  // ── Slots tab functions ──────────────────────────────────────────────────
+  function loadInstructorSchedule(id: string) {
+    setSlotInstId(id);
+    setMonthOffset(0);
+    setSelectedDateStr(null);
+    if (!id) { setDateDraft({}); return; }
+    const inst = instructors.find(i => i.id === id);
+    if (!inst) return;
+    setDateDraft(buildMonthDraft(inst, computeCalendarCells(0)));
+  }
+
+  function goToPrevMonth() {
+    if (monthOffset <= 0) return;
+    const newOffset = monthOffset - 1;
+    setSelectedDateStr(null);
+    setMonthOffset(newOffset);
+    const inst = instructors.find(i => i.id === slotInstId);
+    if (!inst) return;
+    const cells = computeCalendarCells(newOffset);
+    setDateDraft(prev => {
+      const next = { ...prev };
+      cells.forEach(date => {
+        if (!date) return;
+        const dateStr = toDateStr(date);
+        if (!(dateStr in next)) {
+          const scheduled = inst.availability.scheduledDates[dateStr];
+          next[dateStr] = scheduled ? { ...scheduled } : { ...inst.availability.recurring[date.getDay()] };
+        }
+      });
+      return next;
+    });
+  }
+
+  function goToNextMonth() {
+    const newOffset = monthOffset + 1;
+    setSelectedDateStr(null);
+    setMonthOffset(newOffset);
+    const inst = instructors.find(i => i.id === slotInstId);
+    if (!inst) return;
+    const cells = computeCalendarCells(newOffset);
+    setDateDraft(prev => {
+      const next = { ...prev };
+      cells.forEach(date => {
+        if (!date) return;
+        const dateStr = toDateStr(date);
+        if (!(dateStr in next)) {
+          const scheduled = inst.availability.scheduledDates[dateStr];
+          next[dateStr] = scheduled ? { ...scheduled } : { ...inst.availability.recurring[date.getDay()] };
+        }
+      });
+      return next;
+    });
+  }
+
+  function handleDayClick(dateStr: string) {
+    const day = dateDraft[dateStr];
+    if (!day) return;
+    if (!day.active) {
+      setDateDraft(prev => ({
+        ...prev,
+        [dateStr]: { active: true, start: day.start ?? "09:00", end: day.end ?? "17:00" },
+      }));
+      setSelectedDateStr(dateStr);
+    } else if (selectedDateStr !== dateStr) {
+      setSelectedDateStr(dateStr);
+    } else {
+      setDateDraft(prev => ({ ...prev, [dateStr]: { ...prev[dateStr], active: false } }));
+      setSelectedDateStr(null);
+    }
+  }
+
+  function applyToActiveDays() {
+    if (!selectedDateStr) return;
+    const sel = dateDraft[selectedDateStr];
+    if (!sel?.start || !sel?.end) return;
+    const visibleDates = new Set(calendarCells.filter(Boolean).map(d => toDateStr(d!)));
+    setDateDraft(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(dateStr => {
+        if (visibleDates.has(dateStr) && next[dateStr].active) {
+          next[dateStr] = { ...next[dateStr], start: sel.start, end: sel.end };
+        }
+      });
+      return next;
+    });
+  }
+
+  function handleSaveSchedule() {
+    if (!slotInstId) return;
+    setInstructors(prev => prev.map(i =>
+      i.id !== slotInstId ? i : {
+        ...i,
+        availability: {
+          ...i.availability,
+          scheduledDates: { ...i.availability.scheduledDates, ...dateDraft },
+        },
+      }
+    ));
+    setSavedFeedback(true);
+    setTimeout(() => setSavedFeedback(false), 2000);
+  }
+
+  // ── Sort header helper ───────────────────────────────────────────────────
+  function sortTh(col: SortCol, label: string, cls = "") {
+    const active = sortCol === col;
+    return (
+      <th
+        onClick={() => handleSort(col)}
+        className={`text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide cursor-pointer select-none hover:text-[#212529] transition-colors ${cls}`}
+      >
+        {label}
+        <span className={`ml-1 ${active ? "text-[#337C99]" : "text-gray-300"}`}>
+          {active ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </th>
+    );
+  }
+
+  const todayStr = toDateStr(new Date());
+
   const tabBar = (
     <div className="flex gap-1 mb-6 border-b border-gray-200">
-      {([
-        { key: "instructors" as PageTab, label: "Instructors" },
-        { key: "slots" as PageTab, label: "Availability Slots" },
-      ]).map(t => (
+      {(["instructors", "slots"] as PageTab[]).map(key => (
         <button
-          key={t.key}
-          onClick={() => { setPageTab(t.key); if (t.key === "instructors") setView("list"); }}
+          key={key}
+          type="button"
+          onClick={() => setPageTab(key)}
           className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-            pageTab === t.key
+            pageTab === key
               ? "border-[#337C99] text-[#337C99]"
               : "border-transparent text-[#6c757d] hover:text-[#212529]"
           }`}
         >
-          {t.label}
+          {key === "instructors" ? "Instructors" : "Availability Slots"}
         </button>
       ))}
     </div>
   );
 
-  // ── Profile view ─────────────────────────────────────────────────────────
-  if (pageTab === "instructors" && view === "profile" && selected) {
-    return (
-      <div className="p-6 lg:p-8">
-        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-[#212529]">Instructors</h1>
-        </div>
-        {tabBar}
-        <button onClick={() => setView("list")} className="text-sm text-[#337C99] hover:underline mb-5 flex items-center gap-1">
-          ← Back to Instructors
-        </button>
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Left panel */}
-          <div className="space-y-4">
-            <div className="card p-5">
-              <div className="flex items-start justify-between mb-4">
-                <div className="w-14 h-14 rounded-full flex items-center justify-center text-white text-lg font-bold" style={{ backgroundColor: "#337C99" }}>
-                  {selected.firstName[0]}{selected.lastName[0]}
-                </div>
-                <button onClick={editing ? saveEdit : startEdit} className="text-[#6c757d] hover:text-[#212529]">
-                  {editing ? <Check className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
-                </button>
-              </div>
-              {editing ? (
-                <div className="space-y-2">
-                  <input className="input text-sm py-1.5" value={editForm.firstName ?? ""} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} placeholder="First name" />
-                  <input className="input text-sm py-1.5" value={editForm.lastName ?? ""} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Last name" />
-                  <input className="input text-sm py-1.5" value={editForm.email ?? ""} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" />
-                  <input className="input text-sm py-1.5" value={editForm.speciality ?? ""} onChange={e => setEditForm(f => ({ ...f, speciality: e.target.value }))} placeholder="Specialty" />
-                  <button onClick={() => setEditing(false)} className="btn-secondary text-xs w-full justify-center mt-1"><X className="w-3 h-3 mr-1" />Cancel</button>
-                </div>
-              ) : (
-                <>
-                  <h2 className="text-lg font-bold text-[#212529]">{selected.firstName} {selected.lastName}</h2>
-                  <p className="text-sm text-[#6c757d]">{selected.speciality}</p>
-                  <p className="text-sm text-[#6c757d]">{selected.email}</p>
-                  <div className="mt-3">
-                    {selected.isActive ? <span className="badge-green">Active</span> : <span className="badge-gray">Inactive</span>}
-                  </div>
-                </>
-              )}
-            </div>
+  return (
+    <div className="p-6 lg:p-8">
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-[#212529]">Instructors</h1>
+      </div>
 
-            <div className="card p-5">
-              <p className="font-semibold text-[#212529] mb-3">Session Stats</p>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-[#6c757d]">Total Delivered</span>
-                  <span className="font-medium">{selected.totalSessionsDelivered}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#6c757d]">Upcoming</span>
-                  <span className="font-medium">{selected.upcomingSessions}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-[#6c757d]">Member Since</span>
-                  <span className="font-medium">{new Date(selected.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
-                </div>
-              </div>
-            </div>
+      {tabBar}
 
-            <div className="card p-5">
-              <button
-                onClick={() => setDeactivateConfirm(true)}
-                className={`w-full justify-center text-sm ${selected.isActive ? "btn-danger" : "btn-primary"}`}
-                style={selected.isActive ? {} : { backgroundColor: "#337C99" }}
-              >
-                {selected.isActive ? "Deactivate Instructor" : "Reactivate Instructor"}
-              </button>
-            </div>
+      {/* ── Instructors tab ─────────────────────────────────────────────── */}
+      {pageTab === "instructors" && (
+        <div>
+          <div className="flex items-center gap-3 mb-4">
+            <input
+              type="text"
+              className="input flex-1"
+              placeholder="Search by name or speciality…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={openAdd}
+              className="btn-primary text-sm flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" /> Add Instructor
+            </button>
           </div>
 
-          {/* Right: upcoming sessions */}
-          <div className="lg:col-span-2">
-            <div className="card overflow-x-auto">
-              <div className="px-4 py-3 border-b border-gray-200">
-                <h3 className="font-semibold text-[#212529]">Upcoming Sessions</h3>
-              </div>
+          <div className="card overflow-hidden">
+            <div className="overflow-y-auto" style={{ maxHeight: "344px" }}>
               <table className="w-full text-sm">
-                <thead className="border-b border-gray-100">
+                <thead className="sticky top-0 bg-gray-50 z-10 border-b border-gray-200">
                   <tr>
-                    {["Ref", "Customer", "Date", "Time", "Duration", "Status"].map(h => (
-                      <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-[#6c757d] uppercase tracking-wide">{h}</th>
-                    ))}
+                    {sortTh("name",       "Name",       "w-[30%]")}
+                    {sortTh("speciality", "Speciality", "w-[25%]")}
+                    {sortTh("type",       "Type",       "w-[18%]")}
+                    {sortTh("status",     "Status",     "w-[15%]")}
+                    <th className="w-[12%] px-4 py-3" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {instructorBookings.length === 0 ? (
-                    <tr><td colSpan={6} className="px-4 py-6 text-center text-[#6c757d] text-sm">No upcoming sessions</td></tr>
-                  ) : instructorBookings.map(b => (
-                    <tr key={b.id}>
-                      <td className="px-4 py-2.5 font-mono text-xs text-[#337C99]">{b.bookingReference}</td>
-                      <td className="px-4 py-2.5 font-medium text-[#212529]">{b.customerName}</td>
-                      <td className="px-4 py-2.5 text-[#6c757d]">{formatDate(b.date)}</td>
-                      <td className="px-4 py-2.5 text-[#6c757d]">{formatTime(b.startTime)}</td>
-                      <td className="px-4 py-2.5 text-[#6c757d]">{b.durationMinutes}m</td>
-                      <td className="px-4 py-2.5">
-                        <span className={{ confirmed: "badge-green", cancelled: "badge-red", no_show: "badge-yellow", completed: "badge-gray" }[b.status]}>
-                          {b.status.replace("_", " ")}
-                        </span>
+                <tbody className="divide-y divide-gray-100">
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-[#6c757d]">No instructors found</td>
+                    </tr>
+                  ) : filtered.map(inst => (
+                    <tr key={inst.id} className="group hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                            style={{ backgroundColor: "#337C99" }}
+                          >
+                            {inst.firstName[0]}{inst.lastName[0]}
+                          </div>
+                          <div className="min-w-0">
+                            <span className="font-medium text-[#212529] truncate block">{inst.firstName} {inst.lastName}</span>
+                            {inst.email && <span className="text-xs text-[#6c757d] truncate block">{inst.email}</span>}
+                            {inst.phone && <span className="text-xs text-[#6c757d] truncate block">{inst.phone}</span>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-[#6c757d] truncate max-w-0">
+                        <span className="truncate block">{inst.speciality}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="badge-gray">{inst.type}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: inst.isActive ? "#22c55e" : "#9ca3af" }} />
+                          <span className={`text-sm ${inst.isActive ? "text-green-700" : "text-[#6c757d]"}`}>
+                            {inst.isActive ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button type="button" onClick={() => goToSlots(inst.id)} title="Manage availability slots" className="text-[#6c757d] hover:text-[#337C99] transition-colors">
+                            <Calendar className="w-4 h-4" />
+                          </button>
+                          <button type="button" onClick={() => openEdit(inst)} title="Edit instructor" className="text-[#6c757d] hover:text-[#337C99] transition-colors">
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button type="button" onClick={() => handleDelete(inst.id)} title="Remove instructor" className="text-[#6c757d] hover:text-[#b6070e] transition-colors">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
-
-        {deactivateConfirm && (
-          <Modal
-            title={selected.isActive ? "Deactivate Instructor" : "Reactivate Instructor"}
-            onClose={() => setDeactivateConfirm(false)}
-            footer={
-              <>
-                <button onClick={() => setDeactivateConfirm(false)} className="btn-secondary">Cancel</button>
-                <button onClick={() => toggleActive(selected.id)} className={selected.isActive ? "btn-danger" : "btn-primary"}>Confirm</button>
-              </>
-            }
-          >
-            {selected.isActive ? (
-              <div className="space-y-3">
-                <p className="text-sm text-[#6c757d]">
-                  {selected.firstName} {selected.lastName} will be removed from the booking flow. Existing bookings will not be automatically cancelled.
-                </p>
-                {upcomingInstructorBookings.length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-[#212529] mb-2">
-                      {upcomingInstructorBookings.length} upcoming {upcomingInstructorBookings.length === 1 ? "booking" : "bookings"} will be affected:
-                    </p>
-                    <div className="border border-gray-200 rounded-lg overflow-hidden max-h-52 overflow-y-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
-                          <tr>
-                            {["Reference", "Customer", "Date", "Time"].map(h => (
-                              <th key={h} className="text-left px-3 py-2 font-medium text-[#6c757d]">{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {upcomingInstructorBookings.map(b => (
-                            <tr key={b.id}>
-                              <td className="px-3 py-2 font-mono text-[#337C99]">{b.bookingReference}</td>
-                              <td className="px-3 py-2 text-[#212529]">{b.customerName}</td>
-                              <td className="px-3 py-2 text-[#6c757d]">{formatDate(b.date)}</td>
-                              <td className="px-3 py-2 text-[#6c757d]">{formatTime(b.startTime)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-[#6c757d]">
-                Reactivate {selected.firstName} {selected.lastName}? They will be available for new bookings.
-              </p>
-            )}
-          </Modal>
-        )}
-      </div>
-    );
-  }
-
-  // ── List + Slots view ────────────────────────────────────────────────────
-  return (
-    <div className="p-6 lg:p-8">
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-[#212529]">Instructors</h1>
-        {pageTab === "instructors" && (
-          <button onClick={() => { setAddForm(EMPTY_FORM); setShowAdd(true); }} className="btn-primary text-sm flex items-center gap-1.5">
-            <Plus className="w-4 h-4" />Add Instructor
-          </button>
-        )}
-      </div>
-
-      {tabBar}
-
-      {/* Instructors list tab */}
-      {pageTab === "instructors" && (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {instructors.map(inst => (
-            <div key={inst.id} className="card p-5 flex flex-col gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ backgroundColor: "#337C99" }}>
-                  {inst.firstName[0]}{inst.lastName[0]}
-                </div>
-                <div className="min-w-0">
-                  <p className="font-semibold text-[#212529] truncate">{inst.firstName} {inst.lastName}</p>
-                  <p className="text-xs text-[#6c757d] truncate">{inst.speciality}</p>
-                </div>
-              </div>
-              <div className="text-xs text-[#6c757d] space-y-1">
-                <div className="flex justify-between">
-                  <span>Sessions delivered</span>
-                  <span className="font-medium text-[#212529]">{inst.totalSessionsDelivered}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Upcoming</span>
-                  <span className="font-medium text-[#212529]">{inst.upcomingSessions}</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between mt-auto pt-1">
-                {inst.isActive ? <span className="badge-green">Active</span> : <span className="badge-gray">Inactive</span>}
-                <button onClick={() => openProfile(inst)} className="text-[#337C99] hover:underline text-sm">View</button>
-              </div>
+            <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between text-xs text-[#6c757d]">
+              <span>
+                {filtered.length < instructors.length
+                  ? `${filtered.length} shown of ${instructors.length}`
+                  : `${filtered.length} instructor${filtered.length !== 1 ? "s" : ""}`}
+              </span>
+              {filtered.length > 4 && <span>↓ Scroll to see more</span>}
             </div>
-          ))}
+          </div>
+
+          {formMode && (
+            <div className="card p-5 mt-4">
+              <h3 className="font-semibold text-[#212529] mb-4">
+                {formMode === "add" ? "New Instructor" : "Edit Instructor"}
+              </h3>
+              <form onSubmit={e => { e.preventDefault(); handleSave(); }}>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">First Name</label>
+                    <input className="input" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} placeholder="First name" />
+                  </div>
+                  <div>
+                    <label className="label">Last Name</label>
+                    <input className="input" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Last name" />
+                  </div>
+                  <div>
+                    <label className="label">Email</label>
+                    <input type="email" className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="instructor@diamondsports.com" />
+                  </div>
+                  <div>
+                    <label className="label">Phone</label>
+                    <input type="tel" className="input" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="(443) 555-0000" />
+                  </div>
+                  <div>
+                    <label className="label">Speciality</label>
+                    <input className="input" value={form.speciality} onChange={e => setForm(f => ({ ...f, speciality: e.target.value }))} placeholder="e.g. Hitting & Pitching" />
+                  </div>
+                  <div>
+                    <label className="label">Instructor Type</label>
+                    <select className="input" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                      {INSTRUCTOR_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    {TYPE_HINTS[form.type] && (
+                      <p className="text-xs text-[#6c757d] mt-1.5">{TYPE_HINTS[form.type]}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-5">
+                  <button type="button" onClick={() => { setFormMode(null); setEditTarget(null); }} className="btn-secondary text-sm">Cancel</button>
+                  <button type="submit" className="btn-primary text-sm">Save</button>
+                </div>
+              </form>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Availability slots tab */}
+      {/* ── Availability Slots tab ───────────────────────────────────────── */}
       {pageTab === "slots" && (
         <div>
-          <p className="text-sm text-[#6c757d] mb-5">
-            Manually set the time slots an instructor is available on a specific date. Toggle a slot to mark it available or unavailable.
-          </p>
-          <div className="card p-5 mb-5">
-            <div className="flex flex-wrap gap-4 mb-5">
-              <div className="flex-1 min-w-44">
-                <label className="label">Instructor</label>
-                <select className="input" value={slotInstId} onChange={e => handleSlotInstChange(e.target.value)}>
-                  <option value="">Select instructor…</option>
-                  {activeInstructors.map(i => (
-                    <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex-1 min-w-44">
-                <label className="label">Date</label>
-                <input type="date" className="input" min={today} value={slotDate} onChange={e => handleSlotDateChange(e.target.value)} />
-              </div>
-            </div>
+          <div className="mb-6">
+            <label className="label">Instructor</label>
+            <select
+              className="input w-full max-w-sm"
+              value={slotInstId}
+              onChange={e => loadInstructorSchedule(e.target.value)}
+            >
+              <option value="">Select an instructor…</option>
+              {instructors.map(i => (
+                <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>
+              ))}
+            </select>
+          </div>
 
-            {slotInstId && slotDate ? (
-              <>
-                {/* Legend */}
-                <div className="flex items-center gap-4 mb-4">
-                  <span className="flex items-center gap-1.5 text-xs text-[#6c757d]">
-                    <span className="inline-block w-5 h-5 rounded border border-[#337C99] bg-[#337C99]/10" />
-                    Available
-                  </span>
-                  <span className="flex items-center gap-1.5 text-xs text-[#6c757d]">
-                    <span className="inline-block w-5 h-5 rounded border border-gray-200 bg-white" />
-                    Unavailable
-                  </span>
-                </div>
-                {visibleSlots.length === 0 ? (
-                  <p className="text-sm text-[#6c757d] mb-5">No remaining slots for today — all time slots have passed.</p>
-                ) : (
-                  <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mb-5">
-                    {visibleSlots.map(slot => {
-                      const checked = editSlots.has(slot);
-                      return (
-                        <button
-                          key={slot}
-                          type="button"
-                          onClick={() => toggleSlot(slot)}
-                          className={`border rounded-lg px-2 py-1.5 text-xs transition-all text-center ${
-                            checked
-                              ? "border-[#337C99] bg-[#337C99]/10 text-[#337C99] font-semibold"
-                              : "border-gray-200 text-[#6c757d] hover:border-gray-300"
-                          }`}
-                        >
-                          {formatTime(slot)}
-                        </button>
-                      );
-                    })}
+          {slotInstId && (
+            <>
+              <div className="card p-5 mb-5">
+                {/* Month header + navigation */}
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-semibold text-[#212529]">{formatMonthHeader(monthOffset)}</h2>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={goToPrevMonth}
+                      disabled={monthOffset === 0}
+                      className="p-1.5 rounded-lg border border-gray-200 text-[#6c757d] hover:text-[#212529] hover:border-gray-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToNextMonth}
+                      className="p-1.5 rounded-lg border border-gray-200 text-[#6c757d] hover:text-[#212529] hover:border-gray-300 transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
-                )}
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={saveSlots}
-                    disabled={!slotsDirty}
-                    className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Save Slots
-                  </button>
-                  <span className="text-xs text-[#6c757d]">{editSlots.size} slot(s) selected</span>
-                  {!slotsDirty && slotInstId && slotDate && (
-                    <span className="text-xs text-green-600">Saved</span>
+                </div>
+
+                {/* Calendar grid */}
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {DAY_NAMES.map(d => (
+                    <div key={d} className="text-center text-[10px] font-semibold uppercase tracking-wide text-[#6c757d] py-1">{d}</div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1 mb-5">
+                  {calendarCells.map((date, idx) => {
+                    if (!date) return <div key={`e-${idx}`} />;
+                    const dateStr = toDateStr(date);
+                    const ds = dateDraft[dateStr] ?? { active: false, start: null, end: null };
+                    const isToday = todayStr === dateStr;
+                    const isSelected = selectedDateStr === dateStr;
+                    return (
+                      <button
+                        key={dateStr}
+                        type="button"
+                        onClick={() => handleDayClick(dateStr)}
+                        className={`rounded-lg py-1.5 flex flex-col items-center justify-start transition-all min-h-[48px] ${
+                          ds.active && isSelected
+                            ? "bg-[#1e5c73] text-white shadow-sm ring-2 ring-white ring-offset-1"
+                            : ds.active
+                            ? "bg-[#337C99] text-white hover:bg-[#265d73]"
+                            : isToday
+                            ? "ring-2 ring-[#337C99] text-[#337C99] hover:bg-[#337C99]/10"
+                            : "bg-gray-50 text-[#6c757d] hover:bg-gray-100"
+                        }`}
+                      >
+                        <span className="text-xs font-semibold leading-none mt-1">{date.getDate()}</span>
+                        {ds.active && ds.start && ds.end && (
+                          <span className="text-[9px] leading-tight mt-1 opacity-90 px-0.5 text-center">
+                            {formatHourRange(ds.start, ds.end)}
+                          </span>
+                        )}
+                        {ds.active && (!ds.start || !ds.end) && (
+                          <span className="text-[9px] leading-tight mt-1 opacity-75">?</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Per-day time pickers */}
+                <div className="pt-4 border-t border-gray-100">
+                  {selectedDateStr && dateDraft[selectedDateStr]?.active ? (() => {
+                    const sel = dateDraft[selectedDateStr];
+                    const [sy, sm, sd] = selectedDateStr.split("-").map(Number);
+                    const selLabel = new Date(sy, sm - 1, sd).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                    return (
+                      <div className="flex items-end gap-3 flex-wrap">
+                        <div>
+                          <label className="label">Hours for <span className="text-[#337C99]">{selLabel}</span></label>
+                          <div className="flex items-center gap-2">
+                            <select
+                              className="input"
+                              value={sel.start ?? "09:00"}
+                              onChange={e => setDateDraft(prev => ({ ...prev, [selectedDateStr]: { ...prev[selectedDateStr], start: e.target.value } }))}
+                            >
+                              {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                            <span className="text-sm text-[#6c757d]">to</span>
+                            <select
+                              className="input"
+                              value={sel.end ?? "17:00"}
+                              onChange={e => setDateDraft(prev => ({ ...prev, [selectedDateStr]: { ...prev[selectedDateStr], end: e.target.value } }))}
+                            >
+                              {TIME_OPTIONS.filter(o => !sel.start || o.value > sel.start).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <button type="button" onClick={applyToActiveDays} className="btn-secondary text-sm">
+                          Apply to all active days
+                        </button>
+                      </div>
+                    );
+                  })() : (
+                    <p className="text-sm text-[#6c757d]">Click a day to activate it and set its hours.</p>
                   )}
                 </div>
-              </>
-            ) : (
-              <p className="text-sm text-[#6c757d]">Select an instructor and date above to edit their available slots.</p>
-            )}
-          </div>
+              </div>
 
-          <div className="card overflow-x-auto">
-            <div className="px-4 py-3 border-b border-gray-200">
-              <h2 className="font-semibold text-[#212529]">Configured Availability</h2>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="border-b border-gray-100">
-                <tr>
-                  {["Instructor", "Date", "Slots Available", ""].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {availability.filter(av => av.date >= today).length === 0 ? (
-                  <tr><td colSpan={4} className="px-4 py-8 text-center text-[#6c757d]">No upcoming availability configured</td></tr>
-                ) : availability.slice().filter(av => av.date >= today).sort((a, b) => a.date.localeCompare(b.date)).map(av => (
-                  <tr key={av.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-[#212529]">{av.instructorName}</td>
-                    <td className="px-4 py-3 text-[#6c757d]">{formatDate(av.date)}</td>
-                    <td className="px-4 py-3 text-[#6c757d]">{av.slots.length} slot(s)</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => { setSlotInstId(av.instructorId); setSlotDate(av.date); loadSlots(av.instructorId, av.date); }}
-                        className="text-xs text-[#337C99] hover:underline"
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {showAdd && (
-        <Modal
-          title="Add Instructor"
-          onClose={() => setShowAdd(false)}
-          footer={
-            <>
-              <button onClick={() => setShowAdd(false)} className="btn-secondary">Cancel</button>
-              <button form="add-instructor-form" type="submit" className="btn-primary">Add Instructor</button>
+              <div className="flex items-center justify-end gap-3">
+                <span
+                  className="text-sm font-medium text-green-600 transition-opacity duration-700"
+                  style={{ opacity: savedFeedback ? 1 : 0 }}
+                >
+                  ✓ Saved
+                </span>
+                <button type="button" onClick={handleSaveSchedule} className="btn-primary text-sm">
+                  Save schedule
+                </button>
+              </div>
             </>
-          }
-        >
-          <form id="add-instructor-form" onSubmit={handleAdd} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">First Name</label>
-                <input
-                  className="input"
-                  required
-                  value={addForm.firstName}
-                  onChange={e => setAddForm(f => ({ ...f, firstName: e.target.value }))}
-                  placeholder="First name"
-                />
-              </div>
-              <div>
-                <label className="label">Last Name</label>
-                <input
-                  className="input"
-                  required
-                  value={addForm.lastName}
-                  onChange={e => setAddForm(f => ({ ...f, lastName: e.target.value }))}
-                  placeholder="Last name"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="label">Email</label>
-              <input
-                className="input"
-                type="email"
-                required
-                value={addForm.email}
-                onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))}
-                placeholder="instructor@diamondsports.com"
-              />
-            </div>
-            <div>
-              <label className="label">Speciality</label>
-              <input
-                className="input"
-                required
-                value={addForm.speciality}
-                onChange={e => setAddForm(f => ({ ...f, speciality: e.target.value }))}
-                placeholder="e.g. Hitting & Pitching"
-              />
-            </div>
-          </form>
-        </Modal>
+          )}
+        </div>
       )}
     </div>
   );

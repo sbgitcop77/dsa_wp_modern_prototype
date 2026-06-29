@@ -131,9 +131,7 @@ export default function CustomersPage() {
             <div className="card p-5">
               <p className="font-semibold text-[#212529] mb-3">Activity Summary</p>
               <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-[#6c757d]">No-Shows</span><span className="font-medium">{selected.noShowCount}</span></div>
-                <div className="flex justify-between"><span className="text-[#6c757d]">Late Cancellations</span><span className="font-medium">{selected.lateCancellationCount}</span></div>
-                <div className="flex justify-between"><span className="text-[#6c757d]">Flagged</span><span className={selected.isFlagged ? "font-medium text-red-600" : "font-medium"}>{ selected.isFlagged ? "Yes" : "No"}</span></div>
+                <div className="flex justify-between"><span className="text-[#6c757d]">Flagged</span><span className={selected.isFlagged ? "font-medium text-red-600" : "font-medium"}>{selected.isFlagged ? "Yes" : "No"}</span></div>
               </div>
             </div>
             {/* SMS preference */}
@@ -242,26 +240,25 @@ export default function CustomersPage() {
         <table className="w-full text-sm">
           <thead className="border-b border-gray-200">
             <tr>
-              {["Name","Email","Phone","No-shows","Late Cancels","Flag","Status",""].map(h => (
+              {["Name","Email","Phone","Flag","Status"].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-[#6c757d]">No customers found</td></tr>
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-[#6c757d]">No customers found</td></tr>
             ) : filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(c => (
               <tr key={c.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-[#212529]">{c.firstName} {c.lastName}</td>
+                <td className="px-4 py-3">
+                  <button type="button" onClick={() => openProfile(c)} className="font-medium text-[#337C99] hover:underline text-left">
+                    {c.firstName} {c.lastName}
+                  </button>
+                </td>
                 <td className="px-4 py-3 text-[#6c757d]">{c.email}</td>
                 <td className="px-4 py-3 text-[#6c757d]">{c.phone}</td>
-                <td className="px-4 py-3 text-center">{c.noShowCount}</td>
-                <td className="px-4 py-3 text-center">{c.lateCancellationCount}</td>
                 <td className="px-4 py-3">{c.isFlagged ? <span className="badge-red">Flagged</span> : <span className="text-[#6c757d]">—</span>}</td>
                 <td className="px-4 py-3">{c.isActive ? <span className="badge-green">Active</span> : <span className="badge-gray">Inactive</span>}</td>
-                <td className="px-4 py-3">
-                  <button onClick={() => openProfile(c)} className="text-[#337C99] hover:underline text-sm">View</button>
-                </td>
               </tr>
             ))}
           </tbody>

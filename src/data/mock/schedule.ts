@@ -23,6 +23,7 @@ export type InstructorAvailability = {
   instructorName: string;
   date: string;
   slots: string[];
+  frozen: boolean; // stub for upcoming Freeze button feature
 };
 
 export const OPERATING_HOURS: OperatingHours[] = [
@@ -104,7 +105,7 @@ function generateInstructorAvailability(): InstructorAvailability[] {
     for (const pattern of INSTRUCTOR_PATTERNS) {
       const slots = pattern.daySlots[dow];
       if (!slots || isInstructorBlackout(dateStr, pattern.id)) continue;
-      result.push({ id: `av${counter++}`, instructorId: pattern.id, instructorName: pattern.name, date: dateStr, slots });
+      result.push({ id: `av${counter++}`, instructorId: pattern.id, instructorName: pattern.name, date: dateStr, slots, frozen: false });
     }
   }
   return result;

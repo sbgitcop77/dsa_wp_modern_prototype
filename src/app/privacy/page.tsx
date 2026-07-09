@@ -1,3 +1,4 @@
+import { SITE_PHONE, SITE_PHONE_HREF, SITE_ADDRESS } from "@/data/siteConfig";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -36,10 +37,10 @@ export default function PrivacyPage() {
             <h2 className="text-[#212529] font-semibold text-xl mb-3">5. Contact</h2>
             <p>
               If you have questions about this Privacy Policy, contact us at{" "}
-              <a href="tel:+14438651639" className="text-[#337C99] hover:text-[#265d73] transition-colors">
-                (443) 865-1639
+              <a href={SITE_PHONE_HREF} className="text-[#337C99] hover:text-[#265d73] transition-colors">
+                {SITE_PHONE}
               </a>{" "}
-              or visit us at 8274 Lokus Rd, Odenton, MD 21113.
+              or visit us at {SITE_ADDRESS}.
             </p>
           </div>
         </div>

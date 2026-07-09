@@ -1,7 +1,8 @@
 "use client";
 import { useState, useMemo } from "react";
-import { MOCK_INSTRUCTORS, DEFAULT_AVAILABILITY } from "@/data/mock/instructors";
-import type { Instructor, InstructorSchedule, DaySlot } from "@/data/mock/instructors";
+import { db } from "@/data/service";
+import { useAppStore } from "@/data/store/useAppStore";
+import type { Instructor, InstructorSchedule, DaySlot } from "@/data/types";
 import Toast from "@/components/Toast";
 import { Calendar, Pencil, Trash2, Plus, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -9,31 +10,38 @@ type PageTab = "instructors" | "slots";
 type SortCol = "name" | "speciality" | "type" | "status";
 type SortDir = "asc" | "desc";
 
-const INSTRUCTOR_TYPES = ["Lane Instructor", "Wait Room"];
+const INSTRUCTOR_TYPES = ["Lane Instructor", "Non-Lane Instructor"];
 
 const TYPE_HINTS: Record<string, string> = {
   "Lane Instructor": "Has a dedicated lane — booking checks lane capacity before confirming.",
-  "Wait Room": "No lane required — can be booked even when all lanes are occupied.",
+  "Non-Lane Instructor": "No lane required — can be booked even when all lanes are occupied.",
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const DOW_MAP: Record<string, number> = {
+  Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6,
+};
+
+// Full range 06:00–24:00 in 30-min increments
 const TIME_OPTIONS: { value: string; label: string }[] = (() => {
   const opts = [];
-  for (let h = 6; h <= 22; h++) {
+  for (let h = 6; h <= 24; h++) {
     for (const m of [0, 30]) {
-      if (h === 22 && m === 30) break;
-      const value = `${String(h).padStart(2, "0")}:${m === 0 ? "00" : "30"}`;
-      const hour12 = h % 12 || 12;
-      const ampm = h < 12 ? "AM" : "PM";
-      const label = `${hour12}:${m === 0 ? "00" : "30"} ${ampm}`;
+      if (h === 24 && m === 30) break;
+      const value = h === 24 ? "24:00" : `${String(h).padStart(2, "0")}:${m === 0 ? "00" : "30"}`;
+      const label = h === 24 ? "12:00 AM (Midnight)" : (() => {
+        const hour12 = h % 12 || 12;
+        const ampm = h < 12 ? "AM" : "PM";
+        return `${hour12}:${m === 0 ? "00" : "30"} ${ampm}`;
+      })();
       opts.push({ value, label });
     }
   }
   return opts;
 })();
 
-const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", speciality: "", type: "Lane Instructor" };
+const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", speciality: "", type: "" };
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -76,9 +84,13 @@ function buildMonthDraft(inst: Instructor, cells: (Date | null)[]): Record<strin
 }
 
 function formatHourRange(start: string, end: string): string {
-  const fmtH = (t: string) => { const h = parseInt(t); return { h: h % 12 || 12, p: h >= 12 ? "PM" : "AM" }; };
+  const fmtH = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    const label = m === 0 ? `${h % 12 || 12}` : `${h % 12 || 12}:${String(m).padStart(2, "0")}`;
+    return { label, p: h >= 12 ? "PM" : "AM" };
+  };
   const s = fmtH(start); const e = fmtH(end);
-  return s.p === e.p ? `${s.h}–${e.h} ${e.p}` : `${s.h} ${s.p}–${e.h} ${e.p}`;
+  return s.p === e.p ? `${s.label}–${e.label} ${e.p}` : `${s.label} ${s.p}–${e.label} ${e.p}`;
 }
 
 function deepCopyRecurring(r: InstructorSchedule["recurring"]): InstructorSchedule["recurring"] {
@@ -93,7 +105,7 @@ export default function InstructorsPage() {
   const [pageTab, setPageTab] = useState<PageTab>("instructors");
 
   // ── Instructors tab state ────────────────────────────────────────────────
-  const [instructors, setInstructors] = useState(MOCK_INSTRUCTORS);
+  const [instructors, setInstructors] = useState(db.getInstructors());
   const [search, setSearch] = useState("");
   const [typeFilter] = useState("All");
   const [sortCol, setSortCol] = useState<SortCol>("name");
@@ -109,6 +121,27 @@ export default function InstructorsPage() {
   const [dateDraft, setDateDraft] = useState<Record<string, DaySlot>>({});
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
   const [savedFeedback, setSavedFeedback] = useState(false);
+
+  // ── Operating hours (from store) ─────────────────────────────────────────
+  const operatingHours = useAppStore(s => s.operatingHours);
+  const blackouts = useAppStore(s => s.blackouts);
+
+  const ohByDow = useMemo(() => {
+    const map: Record<number, typeof operatingHours[0]> = {};
+    operatingHours.forEach(oh => { map[DOW_MAP[oh.dayOfWeek]] = oh; });
+    return map;
+  }, [operatingHours]);
+
+  const getOhForDate = (dateStr: string) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dow = new Date(y, m - 1, d).getDay();
+    return ohByDow[dow];
+  };
+
+  const isBlackout = (dateStr: string): boolean => {
+    const mmdd = dateStr.slice(5);
+    return blackouts.some(bl => bl.isRecurring ? bl.date.slice(5) === mmdd : bl.date === dateStr);
+  };
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const calendarCells = useMemo(() => computeCalendarCells(monthOffset), [monthOffset]);
@@ -149,7 +182,8 @@ export default function InstructorsPage() {
   }
 
   function handleDelete(id: string) {
-    setInstructors(prev => prev.filter(i => i.id !== id));
+    db.deleteInstructor(id);
+    setInstructors(db.getInstructors());
     if (editTarget?.id === id) setFormMode(null);
     if (slotInstId === id) { setSlotInstId(""); setDateDraft({}); setSelectedDateStr(null); }
     setToast({ message: "Instructor removed.", type: "info" });
@@ -158,33 +192,34 @@ export default function InstructorsPage() {
   function handleSave() {
     if (!form.firstName.trim() || !form.lastName.trim() || !form.speciality.trim()) return;
     if (formMode === "add") {
-      const newInst: Instructor = {
-        id: `i${Date.now()}`,
+      const newInst = db.createInstructor({
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
         speciality: form.speciality.trim(),
         type: form.type,
-        instructor_type: "lane",
+        instructor_type: form.type === "Non-Lane Instructor" ? "non_lane" : "lane",
         isActive: true,
-        totalSessionsDelivered: 0,
-        upcomingSessions: 0,
-        createdAt: new Date().toISOString(),
         availability: {
-          recurring: deepCopyRecurring(DEFAULT_AVAILABILITY.recurring),
+          recurring: deepCopyRecurring({ 0:{active:false,start:null,end:null}, 1:{active:false,start:null,end:null}, 2:{active:false,start:null,end:null}, 3:{active:false,start:null,end:null}, 4:{active:false,start:null,end:null}, 5:{active:false,start:null,end:null}, 6:{active:false,start:null,end:null} }),
           scheduledDates: {},
           frozen: false,
         },
-      };
-      setInstructors(prev => [...prev, newInst]);
+      });
+      setInstructors(db.getInstructors());
       setToast({ message: `${newInst.firstName} ${newInst.lastName} added.`, type: "success" });
     } else if (editTarget) {
-      setInstructors(prev => prev.map(i =>
-        i.id === editTarget.id
-          ? { ...i, firstName: form.firstName.trim(), lastName: form.lastName.trim(), email: form.email.trim(), phone: form.phone.trim(), speciality: form.speciality.trim(), type: form.type }
-          : i
-      ));
+      db.updateInstructor(editTarget.id, {
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        speciality: form.speciality.trim(),
+        type: form.type,
+        instructor_type: form.type === "Non-Lane Instructor" ? "non_lane" : "lane",
+      });
+      setInstructors(db.getInstructors());
       setToast({ message: "Instructor updated.", type: "success" });
     }
     setFormMode(null);
@@ -202,7 +237,7 @@ export default function InstructorsPage() {
     setMonthOffset(0);
     setSelectedDateStr(null);
     if (!id) { setDateDraft({}); return; }
-    const inst = instructors.find(i => i.id === id);
+    const inst = db.getInstructorById(id);
     if (!inst) return;
     setDateDraft(buildMonthDraft(inst, computeCalendarCells(0)));
   }
@@ -212,7 +247,7 @@ export default function InstructorsPage() {
     const newOffset = monthOffset - 1;
     setSelectedDateStr(null);
     setMonthOffset(newOffset);
-    const inst = instructors.find(i => i.id === slotInstId);
+    const inst = db.getInstructorById(slotInstId);
     if (!inst) return;
     const cells = computeCalendarCells(newOffset);
     setDateDraft(prev => {
@@ -233,7 +268,7 @@ export default function InstructorsPage() {
     const newOffset = monthOffset + 1;
     setSelectedDateStr(null);
     setMonthOffset(newOffset);
-    const inst = instructors.find(i => i.id === slotInstId);
+    const inst = db.getInstructorById(slotInstId);
     if (!inst) return;
     const cells = computeCalendarCells(newOffset);
     setDateDraft(prev => {
@@ -250,16 +285,43 @@ export default function InstructorsPage() {
     });
   }
 
+  function getMinStartForDate(dateStr: string): string | null {
+    if (dateStr !== todayStr) return null;
+    const now = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    const next = Math.ceil((mins + 1) / 30) * 30;
+    return `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
+  }
+
   function handleDayClick(dateStr: string) {
-    const day = dateDraft[dateStr];
-    if (!day) return;
+    const oh = getOhForDate(dateStr);
+    if (oh?.isClosed) return;
+    if (isBlackout(dateStr)) return; // facility blackout
+    const minStart = getMinStartForDate(dateStr);
+    const day = dateDraft[dateStr] ?? { active: false, start: null, end: null };
+    // For today: if saved start is in the past, reset to minStart (never null — keeps state in sync with dropdown display)
+    const startIsPast = !!(minStart && day.start && day.start < minStart);
+    const correctedStart = startIsPast ? minStart : day.start;
+    // Keep existing end if still valid after start correction; otherwise default to facility close
+    const correctedEnd = startIsPast
+      ? (day.end && correctedStart && day.end > correctedStart ? day.end : oh?.closeTime ?? "17:00")
+      : day.end;
+    const defaultStart = correctedStart ?? minStart ?? oh?.openTime ?? "09:00";
+    const defaultEnd = correctedEnd ?? oh?.closeTime ?? "17:00";
     if (!day.active) {
       setDateDraft(prev => ({
         ...prev,
-        [dateStr]: { active: true, start: day.start ?? "09:00", end: day.end ?? "17:00" },
+        [dateStr]: { active: true, start: defaultStart, end: defaultEnd },
       }));
       setSelectedDateStr(dateStr);
     } else if (selectedDateStr !== dateStr) {
+      // Correct stale past times in state when selecting today's already-active date
+      if (startIsPast) {
+        setDateDraft(prev => ({
+          ...prev,
+          [dateStr]: { ...prev[dateStr], start: correctedStart, end: correctedEnd },
+        }));
+      }
       setSelectedDateStr(dateStr);
     } else {
       setDateDraft(prev => ({ ...prev, [dateStr]: { ...prev[dateStr], active: false } }));
@@ -283,17 +345,41 @@ export default function InstructorsPage() {
     });
   }
 
+  function generateSlots(start: string, end: string): string[] {
+    const slots: string[] = [];
+    const [sh, sm] = start.split(":").map(Number);
+    const [eh, em] = end.split(":").map(Number);
+    let current = sh * 60 + sm;
+    const endMin = eh * 60 + em;
+    while (current < endMin) {
+      slots.push(`${String(Math.floor(current / 60)).padStart(2, "0")}:${String(current % 60).padStart(2, "0")}`);
+      current += 30;
+    }
+    return slots;
+  }
+
   function handleSaveSchedule() {
     if (!slotInstId) return;
-    setInstructors(prev => prev.map(i =>
-      i.id !== slotInstId ? i : {
-        ...i,
-        availability: {
-          ...i.availability,
-          scheduledDates: { ...i.availability.scheduledDates, ...dateDraft },
-        },
-      }
-    ));
+    const inst = db.getInstructorById(slotInstId);
+    if (!inst) return;
+
+    // Save schedule on the instructor record
+    db.updateInstructor(slotInstId, {
+      availability: {
+        ...inst.availability,
+        scheduledDates: { ...inst.availability.scheduledDates, ...dateDraft },
+      },
+    });
+
+    // Sync InstructorAvailability records so the Book page can see the slots
+    Object.entries(dateDraft).forEach(([date, slot]) => {
+      const slots = slot.active && slot.start && slot.end
+        ? generateSlots(slot.start, slot.end)
+        : [];
+      db.upsertAvailability(slotInstId, date, slots, slot.end ?? "");
+    });
+
+    setInstructors(db.getInstructors());
     setSavedFeedback(true);
     setTimeout(() => setSavedFeedback(false), 2000);
   }
@@ -449,27 +535,28 @@ export default function InstructorsPage() {
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
                     <label className="label">First Name</label>
-                    <input className="input" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} placeholder="First name" />
+                    <input required className="input" value={form.firstName} onChange={e => setForm(f => ({ ...f, firstName: e.target.value }))} placeholder="First name" />
                   </div>
                   <div>
                     <label className="label">Last Name</label>
-                    <input className="input" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Last name" />
+                    <input required className="input" value={form.lastName} onChange={e => setForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Last name" />
                   </div>
                   <div>
                     <label className="label">Email</label>
-                    <input type="email" className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="instructor@diamondsports.com" />
+                    <input required type="email" className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="instructor@diamondsports.com" />
                   </div>
                   <div>
                     <label className="label">Phone</label>
-                    <input type="tel" className="input" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="(443) 555-0000" />
+                    <input required type="tel" pattern="\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}" title="Enter a valid US phone number, e.g. (443) 555-0000" className="input" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="(443) 555-0000" />
                   </div>
                   <div>
                     <label className="label">Speciality</label>
-                    <input className="input" value={form.speciality} onChange={e => setForm(f => ({ ...f, speciality: e.target.value }))} placeholder="e.g. Hitting & Pitching" />
+                    <input required className="input" value={form.speciality} onChange={e => setForm(f => ({ ...f, speciality: e.target.value }))} placeholder="e.g. Hitting & Pitching" />
                   </div>
                   <div>
                     <label className="label">Instructor Type</label>
-                    <select className="input" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                    <select className="input" required value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                      <option value="">— Select One —</option>
                       {INSTRUCTOR_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                     {TYPE_HINTS[form.type] && (
@@ -542,13 +629,24 @@ export default function InstructorsPage() {
                     const ds = dateDraft[dateStr] ?? { active: false, start: null, end: null };
                     const isToday = todayStr === dateStr;
                     const isSelected = selectedDateStr === dateStr;
+                    const oh = getOhForDate(dateStr);
+                    const isClosed = oh?.isClosed ?? false;
+                    const isBlackedOut = isBlackout(dateStr);
+                    const isPast = dateStr < todayStr;
+                    const isDisabled = isClosed || isBlackedOut || isPast;
                     return (
                       <button
                         key={dateStr}
                         type="button"
                         onClick={() => handleDayClick(dateStr)}
+                        disabled={isDisabled}
+                        title={isBlackedOut ? "Blackout date — facility closed" : isClosed ? "Facility closed this day" : isPast ? "Past date" : undefined}
                         className={`rounded-lg py-1.5 flex flex-col items-center justify-start transition-all min-h-[48px] ${
-                          ds.active && isSelected
+                          isBlackedOut
+                            ? "bg-[#b6070e]/10 text-[#b6070e] cursor-not-allowed"
+                            : isClosed || isPast
+                            ? "bg-gray-100 text-gray-300 cursor-not-allowed"
+                            : ds.active && isSelected
                             ? "bg-[#1e5c73] text-white shadow-sm ring-2 ring-white ring-offset-1"
                             : ds.active
                             ? "bg-[#337C99] text-white hover:bg-[#265d73]"
@@ -557,13 +655,15 @@ export default function InstructorsPage() {
                             : "bg-gray-50 text-[#6c757d] hover:bg-gray-100"
                         }`}
                       >
-                        <span className="text-xs font-semibold leading-none mt-1">{date.getDate()}</span>
-                        {ds.active && ds.start && ds.end && (
+                        <span className={`text-xs font-semibold leading-none mt-1 ${isDisabled ? "line-through" : ""}`}>{date.getDate()}</span>
+                        {isBlackedOut && <span className="text-[8px] leading-tight mt-0.5 opacity-80">Blackout</span>}
+                        {!isBlackedOut && isClosed && <span className="text-[8px] leading-tight mt-0.5 opacity-60">Closed</span>}
+                        {!isDisabled && ds.active && ds.start && ds.end && (
                           <span className="text-[9px] leading-tight mt-1 opacity-90 px-0.5 text-center">
                             {formatHourRange(ds.start, ds.end)}
                           </span>
                         )}
-                        {ds.active && (!ds.start || !ds.end) && (
+                        {!isDisabled && ds.active && (!ds.start || !ds.end) && (
                           <span className="text-[9px] leading-tight mt-1 opacity-75">?</span>
                         )}
                       </button>
@@ -577,29 +677,65 @@ export default function InstructorsPage() {
                     const sel = dateDraft[selectedDateStr];
                     const [sy, sm, sd] = selectedDateStr.split("-").map(Number);
                     const selLabel = new Date(sy, sm - 1, sd).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                    const selOh = getOhForDate(selectedDateStr);
+                    const minStartTime = getMinStartForDate(selectedDateStr);
+                    const startOpts = TIME_OPTIONS.filter(o =>
+                      (!selOh || o.value >= selOh.openTime) &&
+                      (!selOh || o.value < selOh.closeTime) &&
+                      (!minStartTime || o.value >= minStartTime)
+                    );
+                    const endOpts = TIME_OPTIONS.filter(o =>
+                      o.value > (sel.start ?? "06:00") &&
+                      (!selOh || o.value <= selOh.closeTime)
+                    );
                     return (
                       <div className="flex items-end gap-3 flex-wrap">
                         <div>
-                          <label className="label">Hours for <span className="text-[#337C99]">{selLabel}</span></label>
+                          <label className="label">
+                            Hours for <span className="text-[#337C99]">{selLabel}</span>
+                            {selOh && (
+                              <span className="ml-2 text-xs text-[#6c757d] font-normal">
+                                (facility open {selOh.openTime}–{selOh.closeTime})
+                              </span>
+                            )}
+                          </label>
                           <div className="flex items-center gap-2">
                             <select
                               className="input"
-                              value={sel.start ?? "09:00"}
-                              onChange={e => setDateDraft(prev => ({ ...prev, [selectedDateStr]: { ...prev[selectedDateStr], start: e.target.value } }))}
+                              value={sel.start ?? minStartTime ?? selOh?.openTime ?? "09:00"}
+                              onChange={e => {
+                                const newStart = e.target.value;
+                                setDateDraft(prev => {
+                                  const cur = prev[selectedDateStr];
+                                  return {
+                                    ...prev,
+                                    [selectedDateStr]: {
+                                      ...cur,
+                                      start: newStart,
+                                      end: cur.end && cur.end > newStart ? cur.end : null,
+                                    },
+                                  };
+                                });
+                              }}
                             >
-                              {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              {startOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
                             <span className="text-sm text-[#6c757d]">to</span>
                             <select
                               className="input"
-                              value={sel.end ?? "17:00"}
+                              value={sel.end ?? selOh?.closeTime ?? "17:00"}
                               onChange={e => setDateDraft(prev => ({ ...prev, [selectedDateStr]: { ...prev[selectedDateStr], end: e.target.value } }))}
                             >
-                              {TIME_OPTIONS.filter(o => !sel.start || o.value > sel.start).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                              {endOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
                           </div>
                         </div>
-                        <button type="button" onClick={applyToActiveDays} className="btn-secondary text-sm">
+                        <button
+                          type="button"
+                          onClick={applyToActiveDays}
+                          className="btn-secondary text-sm"
+                          title="Copies the start and end times from the selected day to all other active days in the current month view."
+                        >
                           Apply to all active days
                         </button>
                       </div>

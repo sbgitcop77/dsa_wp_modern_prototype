@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { useAppStore } from "@/data/store/useAppStore";
 
 const NAV = [
   { label: "Home", href: "/", hideMobile: false },
@@ -45,9 +47,11 @@ const NAV = [
 ];
 
 export default function Header() {
+  const router = useRouter();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const { phone, phoneHref } = useAppStore(s => s.facilitySettings);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 60);
@@ -68,7 +72,7 @@ export default function Header() {
 
           {/* Mobile: phone icon (left) */}
           <a
-            href="tel:+14438651639"
+            href={phoneHref}
             className="lg:hidden text-white mr-2 flex-shrink-0"
             aria-label="Call"
           >
@@ -145,9 +149,9 @@ export default function Header() {
               )}
             </ul>
 
-            {/* Book a Session */}
-            <Link
-              href="/book"
+            {/* Book a Session — always resets wizard to step 1 */}
+            <button
+              onClick={() => router.push(`/book?t=${Date.now()}`)}
               className="ml-3 px-5 py-2 border-2 rounded-full text-sm font-semibold transition-colors"
               style={{
                 borderColor: "#f33b41",
@@ -164,18 +168,25 @@ export default function Header() {
               }}
             >
               Book a Session
-            </Link>
+            </button>
 
-            {/* Divider + phone */}
+            {/* Divider + phone + admin shortcut */}
             <div className="w-px h-6 bg-white/30 mx-4 flex-shrink-0" />
             <a
-              href="tel:+14438651639"
+              href={phoneHref}
               className={`text-sm font-semibold transition-colors ${
                 scrolled ? "text-[#212529]" : "text-white"
               }`}
             >
-              (443) 865-1639
+              {phone}
             </a>
+            <Link
+              href="/admin"
+              className="ml-3 text-[10px] font-semibold px-2 py-0.5 rounded border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors flex-shrink-0"
+              title="Admin panel"
+            >
+              ADMIN
+            </Link>
           </div>
 
           {/* Mobile: hamburger (right) */}
@@ -245,8 +256,8 @@ export default function Header() {
               )
             )}
             <div className="pt-4 border-t border-white/10 flex flex-col gap-3">
-              <a href="tel:+14438651639" className="text-center text-sm text-white/70">
-                (443) 865-1639
+              <a href={phoneHref} className="text-center text-sm text-white/70">
+                {phone}
               </a>
               <Link
                 href="/book"

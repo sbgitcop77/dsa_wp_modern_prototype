@@ -35,9 +35,11 @@ erDiagram
     uuid        id             PK
     text        name
     text        slug           UK
-    text        location
+    text        address_line1
+    text        address_line2
     text        email
     text        phone
+    text        website
     text        timezone
     smallint    active_lanes
     boolean     is_active
@@ -68,7 +70,9 @@ erDiagram
     text        first_name
     text        last_name
     text        email                  UK
+    text        phone
     text        speciality
+    text        instructor_type
     boolean     is_active
     timestamptz created_at
     timestamptz updated_at
@@ -121,11 +125,23 @@ erDiagram
     boolean     is_for_child
     smallint    child_age
     text        relationship_to_customer
+    text        booked_by_name
     boolean     is_walk_in
     text        cancelled_by
     text        cancellation_reason
+    text        conflict_reason
     timestamptz created_at
     timestamptz updated_at
+  }
+
+  instructor_schedules {
+    uuid        id                     PK
+    uuid        facility_id            FK
+    uuid        instructor_id          FK
+    smallint    day_of_week
+    time        start_time
+    time        end_time
+    boolean     is_active
   }
 
   instructor_availability {
@@ -133,17 +149,18 @@ erDiagram
     uuid        facility_id            FK
     uuid        instructor_id          FK
     date        date
-    text        slots
-    timestamptz created_at
+    time        start_time
+    time        end_time
+    boolean     is_active
+    boolean     frozen
     timestamptz updated_at
   }
 
   blackouts {
     uuid        id                     PK
     uuid        facility_id            FK
-    text        type
-    uuid        instructor_id          FK
     date        date
+    boolean     is_recurring
     text        reason
     timestamptz created_at
   }
@@ -151,7 +168,7 @@ erDiagram
   operating_hours {
     uuid        id                     PK
     uuid        facility_id            FK
-    text        day_of_week
+    smallint    day_of_week
     time        open_time
     time        close_time
     boolean     is_closed
@@ -163,6 +180,7 @@ erDiagram
     uuid        facility_id            FK
     date        date
     time        desired_time
+    smallint    duration_minutes
     uuid        instructor_id          FK
     uuid        customer_id            FK
     text        first_name
@@ -177,6 +195,7 @@ erDiagram
   notifications {
     uuid        id                     PK
     uuid        booking_id             FK
+    text        booking_reference
     text        recipient_type
     text        recipient_name
     text        recipient_email
@@ -198,6 +217,7 @@ erDiagram
   facilities        ||--o{ instructors           : "employs"
   facilities        ||--o{ bookings              : "hosts"
   facilities        ||--o{ recurring_series      : "hosts"
+  facilities        ||--o{ instructor_schedules   : "scopes"
   facilities        ||--o{ instructor_availability : "scopes"
   facilities        ||--o{ blackouts             : "has"
   facilities        ||--o{ operating_hours       : "defines"
@@ -210,8 +230,8 @@ erDiagram
   customers         ||--o{ recurring_series      : "enrolls in"
   instructors       ||--o{ recurring_series      : "assigned to"
   bookings          ||--o{ notifications         : "triggers"
+  instructors       ||--o{ instructor_schedules   : "has"
   instructors       ||--o{ instructor_availability : "has"
-  instructors       ||--o{ blackouts             : "blocked by"
   instructors       ||--o{ waitlist_entries      : "requested for"
   customers         ||--o{ waitlist_entries      : "placed by (optional)"
   bookings          |o--o| waitlist_entries      : "converted from"
@@ -225,6 +245,9 @@ erDiagram
 - Each row represents one physical location (e.g. "Diamond Sports Academy – Odenton").
 - `slug` is a URL-safe identifier used in routing (e.g. `/admin/odenton/...`) — `UNIQUE`.
 - `active_lanes` replaces the global `settings('total_active_lanes')` key — lane capacity is inherently per-facility.
+- `address_line1` / `address_line2` replace the prototype's single `location` field (e.g. "8274 Lokus Rd" / "Odenton, MD 21113").
+- `website` stores the public-facing URL (e.g. `https://thediamondsportsacademy.com`).
+- `phone` stores the display form (e.g. "(443) 865-1639"). The `phoneHref` field in the prototype (`tel:+14438651639`) is **derived** — computed at render time from the `phone` value; not stored.
 - `is_active = false` soft-disables a location without deleting any historical data.
 - **Customers are not scoped to a facility** — a customer can book at any location; their history spans all facilities.
 - **Admin users**: `facility_id` is nullable. `NULL` = super-admin (cross-facility access); non-NULL = scoped to one location. A future `admin_user_facilities` join table can support multi-facility admins without a schema change.
@@ -237,6 +260,11 @@ erDiagram
 - `is_flagged` is set manually by admin or automatically when `no_show_count >= 3`.
 
 ### `instructors`
+- `phone` stores the instructor's contact number. Optional (some instructors may not have one on file).
+- `instructor_type` CHECK: `IN ('lane', 'non_lane')`. Required — no default. (Enhancement from prototype work.)
+  - `lane`: consumes a physical batting lane; `lane_assigned` is set on their bookings.
+  - `non_lane`: e.g. speed/agility or conditioning coaches who work off the lanes; `lane_assigned = NULL` on their bookings and lane-full checks do not apply.
+- The prototype has a `type` field (display label e.g. "Lane Instructor") separate from `instructor_type` ("lane"). In production, `type` is **dropped** — the display label is derived from `instructor_type` at render time.
 - `totalSessionsDelivered` and `upcomingSessions` shown in the prototype UI are **not stored** —
   they are computed: `COUNT(bookings WHERE status='completed')` and
   `COUNT(bookings WHERE status='confirmed' AND date >= TODAY)`.
@@ -254,31 +282,99 @@ erDiagram
   sets `is_active = false`.
 
 ### `bookings`
-- `status` CHECK: `IN ('confirmed', 'cancelled', 'no_show', 'completed')`
+- `status` CHECK: `IN ('confirmed', 'cancelled', 'no_show', 'completed', 'waitlisted')`
+  - `waitlisted`: booking exists but is held pending slot confirmation — used for recurring series sessions where an instructor conflict exists on a specific week
 - `cancelled_by` CHECK: `IN ('customer', 'admin')` — NULL when not cancelled
+- `conflict_reason` CHECK: `IN ('instructor_conflict', 'lane_at_capacity')` — NULL unless `status = 'waitlisted'`. Records why the booking could not be immediately confirmed.
+- `booked_by_name` stores the name of the person who made the booking when different from the participant (e.g. a parent booking for a child but not captured in `relationship_to_customer`). NULL for self-bookings.
 - `recurring_series_id` is NULL for one-off and walk-in bookings
-- `booking_reference` format: `DSA-YYYYMMDD-NNNN` (generated at insert time)
+- `booking_reference` format: `DSA-YYYY-NNNNN` (sequential within year, generated at insert time)
 - `cancellation_token` is a random UUID used in the public cancellation URL
 
 ### `instructor_availability`
-- `slots` is a `TEXT[]` array of `HH:MM` values (e.g., `{'08:00','08:30','09:00'}`)
-- One row per instructor per date — `UNIQUE(instructor_id, date)`
-- Absence of a row for a date means the instructor is unavailable that day
+- **Updated from prototype work:** The prototype revealed two distinct availability structures that must both exist:
+  1. **`instructor_schedules`** — recurring weekly template (one row per instructor per day-of-week). Acts as fallback when no date-specific override exists.
+  2. **`instructor_availability`** — date-specific overrides. Takes full precedence over the weekly template for a given date.
+- `slots` computed (not stored): derive 30-min intervals from `start_time` to `end_time` at query time using `generate_series`.
+- **Critical constraint (from bug):** `is_active = true` with a null `start_time` or `end_time` is invalid. The prototype produced a broken "?" display for this state. Must be enforced with a CHECK constraint: `CHECK ((is_active = false) OR (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time))`.
+- `frozen = true` blocks normal admin edits — requires explicit override.
+- One row per instructor per date — `UNIQUE(instructor_id, date)`.
+- Saturday availability must be validated against Saturday facility hours (09:00–17:00), not weekday hours.
+
+#### Revised `instructor_schedules` table (new — replaces `recurring` nested object)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` PK | |
+| `facility_id` | `UUID` FK | |
+| `instructor_id` | `UUID` FK | |
+| `day_of_week` | `SMALLINT` | 0=Sun … 6=Sat |
+| `start_time` | `TIME` | NULL when is_active = false |
+| `end_time` | `TIME` | NULL when is_active = false |
+| `is_active` | `BOOLEAN` DEFAULT false | |
+
+```sql
+ALTER TABLE instructor_schedules
+  ADD CONSTRAINT valid_dow CHECK (day_of_week BETWEEN 0 AND 6),
+  ADD CONSTRAINT valid_active_times CHECK (
+    (is_active = false) OR
+    (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time)
+  ),
+  ADD CONSTRAINT unique_instructor_dow UNIQUE (facility_id, instructor_id, day_of_week);
+```
+
+#### Revised `instructor_availability` table (date-specific overrides)
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` PK | |
+| `facility_id` | `UUID` FK | |
+| `instructor_id` | `UUID` FK | |
+| `date` | `DATE` | |
+| `start_time` | `TIME` | NULL when is_active = false |
+| `end_time` | `TIME` | NULL when is_active = false |
+| `is_active` | `BOOLEAN` DEFAULT true | false = explicitly unavailable this date |
+| `frozen` | `BOOLEAN` DEFAULT false | |
+| `updated_at` | `TIMESTAMPTZ` | |
+
+```sql
+ALTER TABLE instructor_availability
+  ADD CONSTRAINT valid_active_times CHECK (
+    (is_active = false) OR
+    (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time)
+  ),
+  ADD CONSTRAINT unique_instructor_date UNIQUE (facility_id, instructor_id, date);
+```
 
 ### `blackouts`
-- `type` CHECK: `IN ('facility', 'instructor')`
-- `instructor_id` is NULL when `type = 'facility'`
-- `facility_id` is always set — a blackout is always scoped to one location
+- **Updated from prototype work:** Instructor-specific blackouts were removed. Instructor unavailability is handled via `instructor_availability` (set `is_active = false` for that date). Blackouts are facility-wide only.
+- Remove `type` and `instructor_id` columns from earlier design.
+- Replace `type` field with `is_recurring BOOLEAN`: `false` = exact date match; `true` = match MM-DD across any year.
+- **Yearly recurring match logic:** `EXTRACT(MONTH FROM bl.date) = EXTRACT(MONTH FROM candidate_date) AND EXTRACT(DAY FROM bl.date) = EXTRACT(DAY FROM candidate_date)`.
+- **Blackout offset rule (from bug):** When computing "N days from today" for seed or default blackouts, skip Sundays (and any `is_closed` day). Enforce this in the API/seed logic, not as a DB constraint.
+
+#### Revised `blackouts` table
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` PK | |
+| `facility_id` | `UUID` FK | |
+| `date` | `DATE` | For recurring: only MM-DD is used for matching |
+| `is_recurring` | `BOOLEAN` DEFAULT false | true = yearly recurring (MM-DD match) |
+| `reason` | `TEXT` NOT NULL | |
+| `created_at` | `TIMESTAMPTZ` | |
 
 ### `waitlist_entries`
 - `customer_id` is nullable — a person can join the waitlist before having a customer account
 - `first_name`, `last_name`, `email`, `phone` are always populated regardless
+- `duration_minutes` (30 or 60) is captured when the customer joins the waitlist so admin can
+  promote them to a correctly-sized booking without asking again
 - `converted_booking_id` is NULL while the entry is still waiting; set to the created booking's
   UUID when an admin promotes the customer to a confirmed booking
 - `converted_at` is stamped at the same time — allows reporting on waitlist-to-booking conversion
   lag and conversion rates by instructor / time period
-- Entries are **never deleted** on promotion (audit trail); the UI hides action buttons and
-  shows a "Converted" badge once `converted_booking_id` is non-NULL
+- Entries are **deleted** on promotion (not retained); the admin waitlist page removes the row
+  immediately and shows a success modal with the new booking reference
 
 ### `settings`
 - Per-facility key-value store for miscellaneous config that doesn't warrant its own column.
@@ -324,22 +420,38 @@ CREATE INDEX idx_notifications_booking_id   ON notifications(booking_id);
 
 ```sql
 -- Bookings
-CHECK (status IN ('confirmed','cancelled','no_show','completed'))
+CHECK (status IN ('confirmed','cancelled','no_show','completed','waitlisted'))
 CHECK (cancelled_by IN ('customer','admin'))
+CHECK (conflict_reason IN ('instructor_conflict','lane_at_capacity'))
 CHECK (duration_minutes IN (30, 60))
-CHECK (lane_assigned BETWEEN 1 AND 10)  -- upper bound from settings
+CHECK (lane_assigned BETWEEN 1 AND 10)  -- upper bound from facilities.active_lanes
 
--- Blackouts
-CHECK (type IN ('facility','instructor'))
-CHECK (type = 'facility' OR instructor_id IS NOT NULL)
+-- Instructors
+CHECK (instructor_type IN ('lane', 'non_lane'))
 
 -- Customers
 CHECK (source IN ('online_booking','admin_booking','import'))
 
+-- Notifications
+CHECK (notification_type IN ('confirmation','reminder_24hr','reminder_2hr_sms','change','cancellation','calendar_invite'))
+CHECK (channel IN ('email','sms','calendar'))
+CHECK (delivery_status IN ('sent','pending','failed'))
+CHECK (recipient_type IN ('customer','instructor','admin'))
+
 -- Operating hours
-CHECK (day_of_week IN ('Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'))
-CHECK (is_closed = true OR (open_time IS NOT NULL AND close_time IS NOT NULL))
-UNIQUE (facility_id, day_of_week)  -- replaces the old single-column UK on day_of_week
+-- Note: prototype stores day_of_week as TEXT ("Monday"…"Sunday"); production uses SMALLINT (0=Sun…6=Sat)
+CHECK (day_of_week BETWEEN 0 AND 6)
+CHECK (is_closed = true OR (open_time IS NOT NULL AND close_time IS NOT NULL AND close_time > open_time))
+UNIQUE (facility_id, day_of_week)
+
+-- instructor_schedules
+CHECK (day_of_week BETWEEN 0 AND 6)
+CHECK ((is_active = false) OR (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time))
+UNIQUE (facility_id, instructor_id, day_of_week)
+
+-- instructor_availability (date-specific overrides)
+CHECK ((is_active = false) OR (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time))
+UNIQUE (facility_id, instructor_id, date)
 ```
 
 ---
@@ -357,8 +469,23 @@ UNIQUE (facility_id, day_of_week)  -- replaces the old single-column UK on day_o
 | `LANE_UTILIZATION` snapshot | Computed at query time from `bookings` |
 | Hardcoded admin credentials | `admin_users` table with `password_hash` |
 | Bare `recurringSeriesId` string | FK → `recurring_series` table |
-| `InstructorAvailability.slots` TEXT[] | Kept as-is (PostgreSQL native array) |
-| `WaitlistEntry` (no conversion field) | Added `converted_booking_id UUID FK` + `converted_at TIMESTAMPTZ` — entries retained as audit trail |
+| `InstructorAvailability.slots` TEXT[] | **Removed.** Slots computed at query time via `generate_series(start_time, end_time - interval '30 min', interval '30 min')`. |
+| `instructor_availability` (single table, slots stored) | **Split into two tables:** `instructor_schedules` (recurring weekly template, one row per DOW) + `instructor_availability` (date-specific overrides). Both have `start_time`/`end_time` + `is_active` + CHECK constraint that forbids `is_active=true` with null times. |
+| `blackouts.type IN ('facility','instructor')` + `instructor_id` | **Removed.** Instructor-specific unavailability uses `instructor_availability (is_active=false)`. Blackouts are facility-wide only. Replaced `type` with `is_recurring BOOLEAN`. |
+| No `instructor_type` field | Added `instructor_type TEXT CHECK IN ('lane','non_lane')` to `instructors`. Non-lane bookings skip lane-capacity checks and do not set `lane_assigned`. |
+| Saturday closed by default | **Changed.** `operating_hours` seed: Saturday `is_closed=false, open_time='09:00', close_time='17:00'`. Sunday remains closed. |
+| `WaitlistEntry` (no `durationMinutes`) | Added `duration_minutes SMALLINT` — captured at waitlist sign-up so admin can promote to correct session length |
+| `WaitlistEntry.convertedBookingId` — entries retained in prototype | In production DB, `converted_booking_id` + `converted_at` retained for audit/reporting; prototype deletes on promotion |
+| `Booking.status` missing `waitlisted` | Added `'waitlisted'` to status CHECK — used for recurring series sessions with instructor conflict |
+| No `Booking.conflictReason` | Added `conflict_reason TEXT CHECK IN ('instructor_conflict','lane_at_capacity')` — NULL unless waitlisted |
+| No `Booking.bookedByName` | Added `booked_by_name TEXT NULL` — captures who made the booking when different from participant |
+| `Instructor.type` (display label, redundant) | Dropped — derived from `instructor_type` at render time |
+| `Instructor` missing `phone` | Added `phone TEXT` to `instructors` table |
+| `FacilitySettings.location` (single field) | Split into `address_line1` + `address_line2` |
+| `FacilitySettings` missing `website` | Added `website TEXT` to `facilities` table |
+| `FacilitySettings.phoneHref` | **Derived** — computed from `phone` at render time; not stored |
+| `NotificationRecord.bookingReference` (denormalized) | Retained in production for display convenience (avoids join on every notification list load); acceptable denormalization |
+| `operating_hours.day_of_week` as TEXT ("Monday") | Production uses `SMALLINT` (0=Sun…6=Sat) — consistent with `instructor_schedules` |
 | Single-facility assumption throughout | Added `facilities` table; `facility_id FK` added to `instructors`, `bookings`, `recurring_series`, `instructor_availability`, `blackouts`, `operating_hours`, `waitlist_entries`, `settings`, `admin_users` — customers remain global |
 
 ---

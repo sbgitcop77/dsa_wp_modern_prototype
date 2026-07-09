@@ -1,10 +1,11 @@
 "use client";
-import { useState } from "react";
-import { MOCK_CUSTOMERS } from "@/data/mock/customers";
-import { MOCK_BOOKINGS } from "@/data/mock/bookings";
+import { useState, useMemo } from "react";
+import { db } from "@/data/service";
+import { notifyBoth } from "@/data/service/notifyUtils";
+import { useAppStore } from "@/data/store/useAppStore";
 import Modal from "@/components/Modal";
 import Toast from "@/components/Toast";
-import type { Customer } from "@/data/mock/customers";
+import type { Customer } from "@/data/types";
 import { Pencil, X, Check } from "lucide-react";
 
 const PAGE_SIZE = 20;
@@ -12,7 +13,8 @@ const PAGE_SIZE = 20;
 type View = "list" | "profile";
 
 export default function CustomersPage() {
-  const [customers, setCustomers] = useState(MOCK_CUSTOMERS);
+  const customers = useAppStore(s => s.customers);
+  const allBookings = useAppStore(s => s.bookings);
   const [view, setView] = useState<View>("list");
   const [selected, setSelected] = useState<Customer | null>(null);
   const [search, setSearch] = useState("");
@@ -24,7 +26,7 @@ export default function CustomersPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [page, setPage] = useState(1);
 
-  const filtered = customers.filter(c => {
+  const filtered = useMemo(() => customers.filter(c => {
     const q = search.toLowerCase();
     const fullName = `${c.firstName} ${c.lastName}`.toLowerCase();
     if (q && !fullName.includes(q) && !c.email.toLowerCase().includes(q)) return false;
@@ -33,7 +35,7 @@ export default function CustomersPage() {
     if (activeFilter === "active" && !c.isActive) return false;
     if (activeFilter === "inactive" && c.isActive) return false;
     return true;
-  });
+  }), [customers, search, flagFilter, activeFilter]);
 
   function openProfile(c: Customer) {
     setSelected(c);
@@ -42,26 +44,53 @@ export default function CustomersPage() {
   }
 
   function toggleFlag(id: string) {
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, isFlagged: !c.isFlagged } : c));
-    setSelected(prev => prev ? { ...prev, isFlagged: !prev.isFlagged } : prev);
-    setToast({ message: selected?.isFlagged ? "Customer unflagged." : "Customer flagged.", type: "info" });
+    const c = db.getCustomerById(id);
+    if (!c) return;
+    const updated = db.updateCustomer(id, { isFlagged: !c.isFlagged });
+    setSelected(updated);
+    setToast({ message: c.isFlagged ? "Customer unflagged." : "Customer flagged.", type: "info" });
   }
 
+  const _n = new Date();
+  const today = `${_n.getFullYear()}-${String(_n.getMonth() + 1).padStart(2, "0")}-${String(_n.getDate()).padStart(2, "0")}`;
+
+  const futureConfirmedBookings = useMemo(
+    () => selected
+      ? allBookings.filter(b => b.customerId === selected.id && b.status === "confirmed" && b.date >= today)
+      : [],
+    [selected, allBookings, today]
+  );
+
   function toggleActive(id: string) {
-    const now = new Date().toISOString();
-    setCustomers(prev => prev.map(c => {
-      if (c.id !== id) return c;
-      return c.isActive
-        ? { ...c, isActive: false, deactivatedAt: now }
-        : { ...c, isActive: true, deactivatedAt: undefined };
-    }));
-    setSelected(prev => {
-      if (!prev) return prev;
-      return prev.isActive
-        ? { ...prev, isActive: false, deactivatedAt: now }
-        : { ...prev, isActive: true, deactivatedAt: undefined };
+    const c = db.getCustomerById(id);
+    if (!c) return;
+
+    if (c.isActive) {
+      // Cancel all future confirmed bookings
+      futureConfirmedBookings.forEach(b => {
+        db.cancelBooking(b.id, "admin", "Customer account deactivated");
+        notifyBoth(db, {
+          bookingId: b.id,
+          bookingReference: b.bookingReference,
+          recipientName: `${c.firstName} ${c.lastName}`,
+          recipientEmail: c.email,
+          notificationType: "cancellation",
+          customerId: c.id,
+        });
+      });
+    }
+
+    const updated = db.updateCustomer(id, {
+      isActive: !c.isActive,
+      deactivatedAt: c.isActive ? new Date().toISOString() : undefined,
     });
-    setToast({ message: selected?.isActive ? "Customer deactivated." : "Customer reactivated.", type: "info" });
+    setSelected(updated);
+    setToast({
+      message: c.isActive
+        ? `Customer deactivated. ${futureConfirmedBookings.length} future booking${futureConfirmedBookings.length !== 1 ? "s" : ""} cancelled and confirmation email${futureConfirmedBookings.length !== 1 ? "s" : ""} sent.`
+        : "Customer reactivated.",
+      type: "info",
+    });
     setDeactivateConfirm(false);
   }
 
@@ -73,20 +102,24 @@ export default function CustomersPage() {
 
   function saveEdit() {
     if (!selected) return;
-    setCustomers(prev => prev.map(c => c.id === selected.id ? { ...c, ...editForm } : c));
-    setSelected(prev => prev ? { ...prev, ...editForm } : prev);
+    const updated = db.updateCustomer(selected.id, editForm);
+    setSelected(updated);
     setEditing(false);
     setToast({ message: "Customer updated.", type: "success" });
   }
 
   function toggleSmsOptOut(id: string) {
-    const isCurrentlyOptedOut = selected?.smsOptOut ?? false;
-    setCustomers(prev => prev.map(c => c.id === id ? { ...c, smsOptOut: !c.smsOptOut } : c));
-    setSelected(prev => prev ? { ...prev, smsOptOut: !prev.smsOptOut } : prev);
-    setToast({ message: isCurrentlyOptedOut ? "SMS notifications enabled." : "SMS notifications disabled.", type: "info" });
+    const c = db.getCustomerById(id);
+    if (!c) return;
+    const updated = db.updateCustomer(id, { smsOptOut: !c.smsOptOut });
+    setSelected(updated);
+    setToast({ message: c.smsOptOut ? "SMS notifications enabled." : "SMS notifications disabled.", type: "info" });
   }
 
-  const customerBookings = selected ? MOCK_BOOKINGS.filter(b => b.customerId === selected.id) : [];
+  const customerBookings = useMemo(
+    () => selected ? allBookings.filter(b => b.customerId === selected.id) : [],
+    [selected, allBookings]
+  );
 
   if (view === "profile" && selected) {
     return (
@@ -187,7 +220,7 @@ export default function CustomersPage() {
                       <td className="px-4 py-2.5 text-[#6c757d]">{b.instructorName}</td>
                       <td className="px-4 py-2.5 text-[#6c757d]">{b.durationMinutes}m</td>
                       <td className="px-4 py-2.5">
-                        <span className={{ confirmed:"badge-green", cancelled:"badge-red", no_show:"badge-yellow", completed:"badge-gray" }[b.status]}>{b.status.replace("_"," ")}</span>
+                        <span className={({ confirmed:"badge-green", cancelled:"badge-red", no_show:"badge-yellow", completed:"badge-gray", waitlisted:"badge-orange" } as Record<string,string>)[b.status] ?? "badge-gray"}>{b.status.replace("_"," ")}</span>
                       </td>
                     </tr>
                   ))}
@@ -206,11 +239,22 @@ export default function CustomersPage() {
               </>
             }
           >
-            <p className="text-sm text-[#6c757d]">
-              {selected.isActive
-                ? `Are you sure you want to deactivate ${selected.firstName} ${selected.lastName}?`
-                : `Reactivate ${selected.firstName} ${selected.lastName}?`}
-            </p>
+            <div className="space-y-3 text-sm text-[#6c757d]">
+              {selected.isActive ? (
+                <>
+                  <p>Are you sure you want to deactivate <strong className="text-[#212529]">{selected.firstName} {selected.lastName}</strong>?</p>
+                  {futureConfirmedBookings.length > 0 ? (
+                    <p className="border border-amber-200 bg-amber-50 rounded-lg p-3 text-amber-800">
+                      <strong>{futureConfirmedBookings.length} future booking{futureConfirmedBookings.length !== 1 ? "s" : ""}</strong> will be cancelled and a cancellation email will be sent to <strong>{selected.email}</strong>.
+                    </p>
+                  ) : (
+                    <p>This customer has no upcoming bookings.</p>
+                  )}
+                </>
+              ) : (
+                <p>Reactivate <strong className="text-[#212529]">{selected.firstName} {selected.lastName}</strong>? They will be able to make bookings again.</p>
+              )}
+            </div>
           </Modal>
         )}
       </div>

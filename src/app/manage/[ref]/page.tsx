@@ -1,5 +1,4 @@
 "use client";
-export const runtime = "edge";
 import { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
@@ -7,14 +6,22 @@ import {
   startOfDay, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, addMonths, subMonths, format, isBefore, isSameMonth, isToday,
 } from "date-fns";
-import { MOCK_BOOKINGS } from "@/data/mock/bookings";
-import type { Booking } from "@/data/mock/bookings";
-import { INSTRUCTOR_AVAILABILITY } from "@/data/mock/schedule";
+import { useAppStore } from "@/data/store/useAppStore";
+import { db } from "@/data/service";
+import { notifyBoth } from "@/data/service/notifyUtils";
+import type { Booking } from "@/data/types";
 import { CheckCircle, XCircle, ChevronLeft, ChevronRight, Phone, CalendarDays } from "lucide-react";
 
 const LATE_WINDOW_HOURS = 24;
-const DSA_PHONE = "(443) 865-1639";
-const DSA_PHONE_HREF = "tel:+14438651639";
+
+function isSlotInPast(dateStr: string, slot: string): boolean {
+  const _n = new Date();
+  const today = `${_n.getFullYear()}-${String(_n.getMonth() + 1).padStart(2, "0")}-${String(_n.getDate()).padStart(2, "0")}`;
+  if (dateStr !== today) return false;
+  const now = new Date();
+  const [h, m] = slot.split(":").map(Number);
+  return h * 60 + m <= now.getHours() * 60 + now.getMinutes();
+}
 
 function formatTime(t: string) {
   const [h, m] = t.split(":").map(Number);
@@ -34,27 +41,166 @@ function getSessionDateTime(b: Booking): Date {
   return d;
 }
 
-function generateRescheduleRef(): string {
-  const now = new Date();
-  const ds = format(now, "MMdd");
-  const n = String(Math.floor(1000 + Math.random() * 9000));
-  return `DSA-${now.getFullYear()}-R${ds}-${n}`;
-}
-
-type Mode = "options" | "cancel" | "cancelled" | "reschedule" | "rescheduled";
+type Mode = "options" | "cancel" | "cancelled" | "reschedule" | "rescheduled" | "waitlist_confirmed";
 
 export default function ManagePage() {
   const params = useParams();
   const ref = decodeURIComponent(params.ref as string);
-  const booking = MOCK_BOOKINGS.find(b => b.bookingReference === ref);
+
+  const storeBookings = useAppStore(s => s.bookings);
+  const storeAvailability = useAppStore(s => s.availability);
+  const storeBlackouts = useAppStore(s => s.blackouts);
+  const storeInstructors = useAppStore(s => s.instructors);
+  const facilitySettings = useAppStore(s => s.facilitySettings);
+
+  const booking = useMemo(
+    () => storeBookings.find(b => b.bookingReference === ref),
+    [storeBookings, ref]
+  );
+
+  // Series siblings — sorted by date for Session X of Y display
+  const seriesBookings = useMemo(() => {
+    if (!booking?.recurringSeriesId) return [];
+    return [...storeBookings]
+      .filter(b => b.recurringSeriesId === booking.recurringSeriesId)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [booking, storeBookings]);
+  const sessionIndex = seriesBookings.findIndex(b => b.id === booking?.id);
+  const sessionTotal = seriesBookings.length;
 
   const [mode, setMode] = useState<Mode>("options");
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelScope, setCancelScope] = useState<"single" | "series">("single");
+  const [cancelledSeries, setCancelledSeries] = useState(false);
   const [newDate, setNewDate] = useState("");
   const [newTime, setNewTime] = useState("");
-  const [newRef, setNewRef] = useState("");
 
-  // ── Guard states ────────────────────────────────────────────────────────
+  // ── Reschedule slot lookup (must be before any early returns — Rules of Hooks) ──
+  const rescheduleSlots = useMemo(() => {
+    if (!newDate || !booking) return [];
+    const dur = booking.durationMinutes;
+    const LANE_TOTAL = facilitySettings.activeLanes ?? 4;
+    const av = storeAvailability.find(
+      a => a.instructorId === booking.instructorId && a.date === newDate
+    );
+    const allSlots = av?.slots ?? [];
+    return allSlots.filter(slot => {
+      if (isSlotInPast(newDate, slot)) return false;
+      const [sh, sm] = slot.split(":").map(Number);
+      const slotStart = sh * 60 + sm;
+      const slotEnd = slotStart + dur;
+      // Must fit within instructor's availability window
+      if (av?.endTime) {
+        const [eh, em] = av.endTime.split(":").map(Number);
+        if (slotEnd > eh * 60 + em) return false;
+      }
+      const instructorConflict = storeBookings.some(b =>
+        b.id !== booking.id &&
+        b.instructorId === booking.instructorId &&
+        b.date === newDate &&
+        b.status === "confirmed" &&
+        (() => {
+          const [bh, bm] = b.startTime.split(":").map(Number);
+          const [eh, em] = b.endTime.split(":").map(Number);
+          return slotStart < eh * 60 + em && slotEnd > bh * 60 + bm;
+        })()
+      );
+      if (instructorConflict) return false;
+      const laneInstructorIds = new Set(
+        storeInstructors.filter(i => i.instructor_type !== "non_lane").map(i => i.id)
+      );
+      if (laneInstructorIds.has(booking.instructorId)) {
+        const laneCount = storeBookings.filter(b =>
+          b.id !== booking.id &&
+          b.date === newDate &&
+          b.status === "confirmed" &&
+          laneInstructorIds.has(b.instructorId) &&
+          (() => {
+            const [bh, bm] = b.startTime.split(":").map(Number);
+            const [eh, em] = b.endTime.split(":").map(Number);
+            return slotStart < eh * 60 + em && slotEnd > bh * 60 + bm;
+          })()
+        ).length;
+        if (laneCount >= LANE_TOTAL) return false;
+      }
+      return true;
+    });
+  }, [newDate, booking, storeAvailability, storeBookings, storeInstructors, facilitySettings]);
+
+  // Show success screens before guard checks so store reactive updates don't
+  // redirect to "AlreadyCancelled" immediately after writing the cancellation.
+  if (mode === "cancelled") {
+    return (
+      <PageShell>
+        <div className="text-center">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#337C99" }}>
+            <CheckCircle className="w-7 h-7 text-white" />
+          </div>
+          <h1 className="text-xl font-bold text-[#212529] mb-2">
+            {cancelledSeries ? "Series Cancelled" : "Booking Cancelled"}
+          </h1>
+          <p className="text-sm text-[#6c757d] mb-6">
+            {cancelledSeries
+              ? <>All upcoming sessions in your recurring series with <strong>{booking?.instructorName}</strong> have been cancelled. A confirmation email has been sent.</>
+              : <>Your session on <strong>{formatDate(booking?.date ?? "")}</strong> at{" "}
+                <strong>{booking ? formatTime(booking.startTime) : ""}</strong> with{" "}
+                <strong>{booking?.instructorName}</strong> has been cancelled. A confirmation email has been sent.</>
+            }
+          </p>
+          <a href="/book" className="btn-primary text-sm inline-block">Book a New Session</a>
+        </div>
+      </PageShell>
+    );
+  }
+
+  if (mode === "rescheduled") {
+    return (
+      <PageShell>
+        <div className="text-center">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#337C99" }}>
+            <CheckCircle className="w-7 h-7 text-white" />
+          </div>
+          <h1 className="text-xl font-bold text-[#212529] mb-2">Session Rescheduled!</h1>
+          <p className="text-sm text-[#6c757d] mb-5">
+            Your booking has been moved. A confirmation email has been sent.
+          </p>
+          <div className="bg-gray-50 rounded-xl p-4 text-left space-y-2.5 text-sm mb-6">
+            <DetailRow label="Reference" value={ref} mono />
+            <DetailRow label="Instructor" value={booking?.instructorName ?? ""} />
+            <DetailRow label="New Date" value={formatDate(newDate)} />
+            <DetailRow label="New Time" value={formatTime(newTime)} />
+            <DetailRow label="Duration" value={`${booking?.durationMinutes ?? 60} min`} />
+          </div>
+          <a href="/" className="btn-secondary text-sm inline-block">Return to Home</a>
+        </div>
+      </PageShell>
+    );
+  }
+
+  if (mode === "waitlist_confirmed") {
+    return (
+      <PageShell>
+        <div className="text-center">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#337C99" }}>
+            <CheckCircle className="w-7 h-7 text-white" />
+          </div>
+          <h1 className="text-xl font-bold text-[#212529] mb-2">Session Confirmed!</h1>
+          <p className="text-sm text-[#6c757d] mb-5">
+            Your waitlisted session has been confirmed. A confirmation email has been sent.
+          </p>
+          <div className="bg-gray-50 rounded-xl p-4 text-left space-y-2.5 text-sm mb-6">
+            <DetailRow label="Reference" value={ref} mono />
+            <DetailRow label="Instructor" value={booking?.instructorName ?? ""} />
+            <DetailRow label="Date" value={formatDate(booking?.date ?? "")} />
+            <DetailRow label="Time" value={booking ? `${formatTime(booking.startTime)} – ${formatTime(booking.endTime)}` : ""} />
+          </div>
+          <a href="/" className="btn-secondary text-sm inline-block">Return to Home</a>
+        </div>
+      </PageShell>
+    );
+  }
+
+  // ── Guard states ──────────────────────────────────────────────────────────
 
   if (!booking || booking.status === "completed" || booking.status === "no_show") {
     return <NotFound refStr={ref} />;
@@ -72,30 +218,80 @@ export default function ManagePage() {
     return <NotFound refStr={ref} />;
   }
 
-  if (hoursUntil < LATE_WINDOW_HOURS) {
+  // Waitlisted sessions bypass the 24h guard — the slot hasn't been confirmed yet
+  if (hoursUntil < LATE_WINDOW_HOURS && booking.status !== "waitlisted") {
     return <Within24h booking={booking} />;
   }
 
-  // ── Reschedule slot lookup ──────────────────────────────────────────────
+  // ── Handlers ─────────────────────────────────────────────────────────────
 
-  const rescheduleSlots = newDate
-    ? (INSTRUCTOR_AVAILABILITY.find(
-        a => a.instructorId === booking.instructorId && a.date === newDate
-      )?.slots ?? [])
-    : [];
-
-  // ── Handlers ───────────────────────────────────────────────────────────
+  function handleConfirmWaitlisted() {
+    if (!booking) return;
+    db.confirmWaitlisted(booking.id);
+    const customer = db.getCustomers().find(c => c.id === booking.customerId);
+    notifyBoth(db, {
+      bookingId: booking.id,
+      bookingReference: booking.bookingReference,
+      recipientName: booking.customerName,
+      recipientEmail: customer?.email ?? "",
+      notificationType: "confirmation",
+      customerId: booking.customerId,
+    });
+    setMode("waitlist_confirmed");
+  }
 
   function confirmCancel() {
+    if (!booking) return;
+    const customer = db.getCustomers().find(c => c.id === booking.customerId);
+    if (cancelScope === "series" && booking.recurringSeriesId) {
+      const _n2 = new Date();
+      const today = `${_n2.getFullYear()}-${String(_n2.getMonth() + 1).padStart(2, "0")}-${String(_n2.getDate()).padStart(2, "0")}`;
+      const cancelled = db.cancelSeries(booking.recurringSeriesId, today, "customer", cancelReason || undefined);
+      cancelled.forEach(b => {
+        notifyBoth(db, {
+          bookingId: b.id,
+          bookingReference: b.bookingReference,
+          recipientName: b.customerName,
+          recipientEmail: customer?.email ?? "",
+          notificationType: "cancellation",
+          customerId: b.customerId,
+        });
+      });
+      setCancelledSeries(true);
+    } else {
+      db.cancelBooking(booking.id, "customer", cancelReason || undefined);
+      notifyBoth(db, {
+        bookingId: booking.id,
+        bookingReference: booking.bookingReference,
+        recipientName: booking.customerName,
+        recipientEmail: customer?.email ?? "",
+        notificationType: "cancellation",
+        customerId: booking.customerId,
+      });
+      setCancelledSeries(false);
+    }
     setMode("cancelled");
   }
 
   function confirmReschedule() {
-    setNewRef(generateRescheduleRef());
+    if (!booking) return;
+    const [h, m] = newTime.split(":").map(Number);
+    const endMins = h * 60 + m + booking.durationMinutes;
+    const endTime = `${String(Math.floor(endMins / 60)).padStart(2, "0")}:${String(endMins % 60).padStart(2, "0")}`;
+    db.updateBooking(booking.id, { date: newDate, startTime: newTime, endTime });
+    const customer = db.getCustomers().find(c => c.id === booking.customerId);
+    notifyBoth(db, {
+      bookingId: booking.id,
+      bookingReference: booking.bookingReference,
+      recipientName: booking.customerName,
+      recipientEmail: customer?.email ?? "",
+      notificationType: "change",
+      customerId: booking.customerId,
+    });
     setMode("rescheduled");
   }
 
-  // ── Options (landing) ──────────────────────────────────────────────────
+  // ── Options (landing) ─────────────────────────────────────────────────────
 
   if (mode === "options") {
     return (
@@ -103,9 +299,25 @@ export default function ManagePage() {
         <h1 className="text-xl font-bold text-[#212529] mb-1">Manage Your Booking</h1>
         <p className="text-sm text-[#6c757d] mb-5">What would you like to do with this session?</p>
 
-        <BookingDetails booking={booking} />
+        <BookingDetails booking={booking} sessionIndex={sessionIndex} sessionTotal={sessionTotal} />
 
-        <div className="grid grid-cols-2 gap-3 mt-6">
+        {/* Confirm waitlisted CTA */}
+        {booking.status === "waitlisted" && (
+          <div className="mt-4 border border-amber-200 bg-amber-50 rounded-lg p-4 text-sm">
+            <p className="font-semibold text-amber-800 mb-1">Slot Available — Confirm Now</p>
+            <p className="text-amber-700 text-xs mb-3">
+              A spot has opened for this session. Confirm to secure your place, or it may be taken by another customer.
+            </p>
+            <button
+              onClick={handleConfirmWaitlisted}
+              className="btn-primary text-sm justify-center w-full"
+            >
+              Confirm This Session
+            </button>
+          </div>
+        )}
+
+        <div className={`grid gap-3 mt-6 ${booking.status === "waitlisted" ? "grid-cols-2" : "grid-cols-2"}`}>
           <button
             onClick={() => { setNewDate(""); setNewTime(""); setMode("reschedule"); }}
             className="flex flex-col items-center gap-2 border-2 border-[#337C99] rounded-xl p-4 text-[#337C99] hover:bg-[#337C99]/5 transition-colors"
@@ -115,7 +327,7 @@ export default function ManagePage() {
             <span className="text-xs text-[#6c757d] text-center">Pick a new date &amp; time</span>
           </button>
           <button
-            onClick={() => { setCancelReason(""); setMode("cancel"); }}
+            onClick={() => { setCancelReason(""); setCancelScope("single"); setMode("cancel"); }}
             className="flex flex-col items-center gap-2 border-2 border-[#b6070e] rounded-xl p-4 text-[#b6070e] hover:bg-red-50 transition-colors"
           >
             <XCircle className="w-6 h-6" />
@@ -123,11 +335,46 @@ export default function ManagePage() {
             <span className="text-xs text-[#6c757d] text-center">Remove this session</span>
           </button>
         </div>
+
+        {/* Sibling sessions in series */}
+        {seriesBookings.length > 1 && (
+          <div className="mt-6">
+            <p className="text-xs font-semibold text-[#6c757d] uppercase tracking-wider mb-2">All Sessions in This Series</p>
+            <div className="space-y-2">
+              {seriesBookings.map((s, idx) => {
+                const isCurrent = s.id === booking.id;
+                return (
+                  <div
+                    key={s.id}
+                    className={`flex items-center justify-between rounded-lg px-3 py-2 text-xs ${
+                      isCurrent ? "bg-[#337C99]/10 border border-[#337C99]/30" : "bg-gray-50"
+                    }`}
+                  >
+                    <span className="text-[#6c757d]">
+                      Session {idx + 1} · {formatDate(s.date)} {formatTime(s.startTime)}
+                      {isCurrent && <span className="ml-1 text-[#337C99] font-medium">(this session)</span>}
+                    </span>
+                    <span
+                      className="px-1.5 py-0.5 rounded-full font-medium text-[10px]"
+                      style={
+                        s.status === "confirmed" ? { backgroundColor: "#d1fae5", color: "#065f46" }
+                        : s.status === "waitlisted" ? { backgroundColor: "#fef3c7", color: "#92400e" }
+                        : { backgroundColor: "#fee2e2", color: "#991b1b" }
+                      }
+                    >
+                      {s.status === "confirmed" ? "Confirmed" : s.status === "waitlisted" ? "Waitlisted" : "Cancelled"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </PageShell>
     );
   }
 
-  // ── Cancel form ────────────────────────────────────────────────────────
+  // ── Cancel form ───────────────────────────────────────────────────────────
 
   if (mode === "cancel") {
     return (
@@ -136,15 +383,36 @@ export default function ManagePage() {
         <h1 className="text-xl font-bold text-[#212529] mb-1">Cancel Booking</h1>
         <p className="text-sm text-[#6c757d] mb-5">You're about to cancel the following session.</p>
 
-        <BookingDetails booking={booking} />
+        <BookingDetails booking={booking} sessionIndex={sessionIndex} sessionTotal={sessionTotal} />
 
         {booking.isRecurring && (
-          <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-            <p className="font-medium mb-0.5">Part of a recurring series</p>
-            <p>
-              This will cancel this session only. To cancel the full series, call us at{" "}
-              <a href={DSA_PHONE_HREF} className="underline font-medium">{DSA_PHONE}</a>.
-            </p>
+          <div className="mt-4 space-y-2">
+            <p className="text-sm font-medium text-[#212529]">What would you like to cancel?</p>
+            {(["single", "series"] as const).map(scope => (
+              <label
+                key={scope}
+                className={`flex items-start gap-3 border rounded-lg p-3 cursor-pointer transition-colors ${
+                  cancelScope === scope ? "border-[#b6070e] bg-red-50" : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <input
+                  type="radio"
+                  className="mt-0.5"
+                  checked={cancelScope === scope}
+                  onChange={() => setCancelScope(scope)}
+                />
+                <div>
+                  <p className="text-sm font-medium text-[#212529]">
+                    {scope === "single" ? "This session only" : "Entire series (all upcoming sessions)"}
+                  </p>
+                  <p className="text-xs text-[#6c757d] mt-0.5">
+                    {scope === "single"
+                      ? "Only this date is cancelled. Other sessions in your series remain scheduled."
+                      : "Cancels this and all remaining upcoming sessions in the series."}
+                  </p>
+                </div>
+              </label>
+            ))}
           </div>
         )}
 
@@ -166,143 +434,98 @@ export default function ManagePage() {
             Keep Session
           </button>
           <button onClick={confirmCancel} className="btn-danger flex-1 text-sm justify-center">
-            Confirm Cancellation
+            {cancelScope === "series" && booking.isRecurring ? "Cancel Entire Series" : "Confirm Cancellation"}
           </button>
         </div>
       </PageShell>
     );
   }
 
-  // ── Cancelled success ──────────────────────────────────────────────────
-
-  if (mode === "cancelled") {
-    return (
-      <PageShell>
-        <div className="text-center">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#337C99" }}>
-            <CheckCircle className="w-7 h-7 text-white" />
-          </div>
-          <h1 className="text-xl font-bold text-[#212529] mb-2">Booking Cancelled</h1>
-          <p className="text-sm text-[#6c757d] mb-6">
-            Your session on <strong>{formatDate(booking.date)}</strong> at{" "}
-            <strong>{formatTime(booking.startTime)}</strong> with{" "}
-            <strong>{booking.instructorName}</strong> has been cancelled. A confirmation email has been sent.
-          </p>
-          <a href="/book" className="btn-primary text-sm inline-block">Book a New Session</a>
-        </div>
-      </PageShell>
-    );
-  }
-
-  // ── Reschedule form ────────────────────────────────────────────────────
-
-  if (mode === "reschedule") {
-    return (
-      <PageShell>
-        <BackLink onClick={() => setMode("options")} />
-        <h1 className="text-xl font-bold text-[#212529] mb-1">Reschedule Session</h1>
-        <p className="text-sm text-[#6c757d] mb-4">
-          Currently: <strong>{formatDate(booking.date)}</strong> at{" "}
-          <strong>{formatTime(booking.startTime)}</strong> with {booking.instructorName}
-        </p>
-
-        {booking.isRecurring && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-5 text-sm text-amber-800">
-            <p className="font-medium mb-0.5">This session only</p>
-            <p>
-              Rescheduling applies to this session only — your other sessions in the series remain unchanged.
-              To reschedule the full series, call us at{" "}
-              <a href={DSA_PHONE_HREF} className="underline font-medium">{DSA_PHONE}</a>.
-            </p>
-          </div>
-        )}
-
-        <label className="label">Select a New Date</label>
-        <BookingCalendar
-          selectedDate={newDate}
-          instructorId={booking.instructorId}
-          onSelect={d => { setNewDate(d); setNewTime(""); }}
-        />
-
-        {newDate && (
-          <div className="mt-5">
-            <label className="label">Available Times</label>
-            {rescheduleSlots.length === 0 ? (
-              <p className="text-sm text-[#6c757d]">No available slots on this date. Please choose another day.</p>
-            ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {rescheduleSlots.map(slot => (
-                  <button
-                    key={slot}
-                    onClick={() => setNewTime(slot)}
-                    className={`border rounded-lg px-2 py-1.5 text-sm transition-all ${
-                      newTime === slot
-                        ? "border-[#337C99] bg-[#337C99]/5 text-[#337C99] font-medium"
-                        : "border-gray-200 hover:border-gray-300 text-[#212529]"
-                    }`}
-                  >
-                    {formatTime(slot)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {newDate && newTime && (
-          <div className="mt-5 rounded-xl p-4 text-sm" style={{ backgroundColor: "#337C99" + "18", border: "1px solid " + "#337C99" + "33" }}>
-            <p className="font-semibold mb-3" style={{ color: "#337C99" }}>New Session Summary</p>
-            <div className="space-y-1.5">
-              <SummaryRow label="Date" value={formatDate(newDate)} />
-              <SummaryRow label="Time" value={formatTime(newTime)} />
-              <SummaryRow label="Instructor" value={booking.instructorName} />
-              <SummaryRow label="Duration" value={`${booking.durationMinutes} min`} />
-            </div>
-          </div>
-        )}
-
-        <div className="flex gap-3 mt-6">
-          <button onClick={() => setMode("options")} className="btn-secondary flex-1 text-sm justify-center">
-            Back
-          </button>
-          <button
-            onClick={confirmReschedule}
-            disabled={!newDate || !newTime}
-            className="btn-primary flex-1 text-sm justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Confirm Reschedule
-          </button>
-        </div>
-      </PageShell>
-    );
-  }
-
-  // ── Rescheduled success ────────────────────────────────────────────────
+  // ── Reschedule form ───────────────────────────────────────────────────────
 
   return (
     <PageShell>
-      <div className="text-center">
-        <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: "#337C99" }}>
-          <CheckCircle className="w-7 h-7 text-white" />
+      <BackLink onClick={() => setMode("options")} />
+      <h1 className="text-xl font-bold text-[#212529] mb-1">Reschedule Session</h1>
+      <p className="text-sm text-[#6c757d] mb-1">
+        Currently: <strong>{formatDate(booking.date)}</strong> at{" "}
+        <strong>{formatTime(booking.startTime)}</strong> with {booking.instructorName}
+      </p>
+      <p className="text-sm text-[#6c757d] mb-4">
+        Duration: <strong>{booking.durationMinutes} min</strong>
+      </p>
+
+      {booking.isRecurring && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-5 text-sm text-amber-800">
+          <p className="font-medium mb-0.5">This session only</p>
+          <p>
+            Rescheduling applies to this date only — your other sessions in the series remain unchanged.
+            To move the entire series to a different day or time, cancel the series below and re-book.
+          </p>
         </div>
-        <h1 className="text-xl font-bold text-[#212529] mb-2">Session Rescheduled!</h1>
-        <p className="text-sm text-[#6c757d] mb-5">
-          Your booking has been moved. A confirmation email has been sent.
-        </p>
-        <div className="bg-gray-50 rounded-xl p-4 text-left space-y-2.5 text-sm mb-6">
-          <DetailRow label="New Reference" value={newRef} mono />
-          <DetailRow label="Instructor" value={booking.instructorName} />
-          <DetailRow label="New Date" value={formatDate(newDate)} />
-          <DetailRow label="New Time" value={formatTime(newTime)} />
-          <DetailRow label="Duration" value={`${booking.durationMinutes} min`} />
+      )}
+
+      <label className="label">Select a New Date</label>
+      <BookingCalendar
+        selectedDate={newDate}
+        instructorId={booking.instructorId}
+        onSelect={d => { setNewDate(d); setNewTime(""); }}
+      />
+
+      {newDate && (
+        <div className="mt-5">
+          <label className="label">Available Times</label>
+          {rescheduleSlots.length === 0 ? (
+            <p className="text-sm text-[#6c757d]">No available slots on this date. Please choose another day.</p>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {rescheduleSlots.map(slot => (
+                <button
+                  key={slot}
+                  onClick={() => setNewTime(slot)}
+                  className={`border rounded-lg px-2 py-1.5 text-sm transition-all ${
+                    newTime === slot
+                      ? "border-[#337C99] bg-[#337C99]/5 text-[#337C99] font-medium"
+                      : "border-gray-200 hover:border-gray-300 text-[#212529]"
+                  }`}
+                >
+                  {formatTime(slot)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-        <a href="/" className="btn-secondary text-sm inline-block">Return to Home</a>
+      )}
+
+      {newDate && newTime && (
+        <div className="mt-5 rounded-xl p-4 text-sm" style={{ backgroundColor: "#337C99" + "18", border: "1px solid " + "#337C99" + "33" }}>
+          <p className="font-semibold mb-3" style={{ color: "#337C99" }}>New Session Summary</p>
+          <div className="space-y-1.5">
+            <SummaryRow label="Date" value={formatDate(newDate)} />
+            <SummaryRow label="Time" value={formatTime(newTime)} />
+            <SummaryRow label="Instructor" value={booking.instructorName} />
+            <SummaryRow label="Duration" value={`${booking.durationMinutes} min`} />
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-3 mt-6">
+        <button onClick={() => setMode("options")} className="btn-secondary flex-1 text-sm justify-center">
+          Back
+        </button>
+        <button
+          onClick={confirmReschedule}
+          disabled={!newDate || !newTime}
+          className="btn-primary flex-1 text-sm justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Confirm Reschedule
+        </button>
       </div>
     </PageShell>
   );
 }
 
-// ── Guard screens ──────────────────────────────────────────────────────────
+// ── Guard screens ─────────────────────────────────────────────────────────────
 
 function NotFound({ refStr }: { refStr: string }) {
   return (
@@ -344,6 +567,7 @@ function AlreadyCancelled({ booking }: { booking: Booking }) {
 }
 
 function Within24h({ booking }: { booking: Booking }) {
+  const { phone: DSA_PHONE, phoneHref: DSA_PHONE_HREF } = useAppStore(s => s.facilitySettings);
   return (
     <PageShell>
       <div className="flex items-center gap-3 mb-5">
@@ -385,9 +609,16 @@ function Within24h({ booking }: { booking: Booking }) {
   );
 }
 
-// ── Shared sub-components ──────────────────────────────────────────────────
+// ── Shared sub-components ─────────────────────────────────────────────────────
 
-function BookingDetails({ booking }: { booking: Booking }) {
+function BookingDetails({
+  booking, sessionIndex, sessionTotal,
+}: {
+  booking: Booking;
+  sessionIndex?: number;
+  sessionTotal?: number;
+}) {
+  const hasSeriesInfo = booking.isRecurring && sessionTotal && sessionTotal > 1 && sessionIndex !== undefined && sessionIndex >= 0;
   return (
     <div className="bg-gray-50 rounded-xl p-4 space-y-2.5 text-sm">
       <DetailRow label="Reference" value={booking.bookingReference} mono />
@@ -397,11 +628,32 @@ function BookingDetails({ booking }: { booking: Booking }) {
       <DetailRow label="Time" value={`${formatTime(booking.startTime)} – ${formatTime(booking.endTime)}`} />
       <DetailRow label="Duration" value={`${booking.durationMinutes} min`} />
       {booking.isForChild && (
-        <DetailRow label="Session for" value={`Child (age ${booking.childAge})`} />
+        <>
+          {booking.childName && <DetailRow label="Child's name" value={booking.childName} />}
+          <DetailRow label="Child's age" value={`${booking.childAge} yrs`} />
+          {booking.relationshipToCustomer && <DetailRow label="Relationship" value={booking.relationshipToCustomer} />}
+        </>
       )}
-      {booking.isRecurring && (
-        <div className="pt-1"><span className="badge-blue">Recurring series</span></div>
-      )}
+      <div className="flex flex-wrap gap-2 pt-1">
+        {booking.status === "waitlisted" && (
+          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: "#fef3c7", color: "#92400e" }}>
+            Waitlisted
+          </span>
+        )}
+        {booking.status === "confirmed" && (
+          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium" style={{ backgroundColor: "#d1fae5", color: "#065f46" }}>
+            Confirmed
+          </span>
+        )}
+        {hasSeriesInfo && (
+          <span className="badge-blue">
+            Session {sessionIndex! + 1} of {sessionTotal}
+          </span>
+        )}
+        {booking.isRecurring && !hasSeriesInfo && (
+          <span className="badge-blue">Recurring series</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -462,7 +714,7 @@ function PageShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Calendar ───────────────────────────────────────────────────────────────
+// ── Calendar ──────────────────────────────────────────────────────────────────
 
 function BookingCalendar({
   selectedDate,
@@ -478,13 +730,21 @@ function BookingCalendar({
     startOfMonth(selectedDate ? new Date(selectedDate + "T00:00:00") : today)
   );
 
+  const storeAvailability = useAppStore(s => s.availability);
+  const storeBlackouts = useAppStore(s => s.blackouts);
+
+  const isBlackout = useMemo(() => (dateStr: string) => {
+    const mmdd = dateStr.slice(5);
+    return storeBlackouts.some(bl => bl.isRecurring ? bl.date.slice(5) === mmdd : bl.date === dateStr);
+  }, [storeBlackouts]);
+
   const availableDates = useMemo(() => {
     const s = new Set<string>();
-    INSTRUCTOR_AVAILABILITY
-      .filter(a => a.instructorId === instructorId && a.slots.length > 0)
+    storeAvailability
+      .filter(a => a.instructorId === instructorId && a.slots.length > 0 && !isBlackout(a.date))
       .forEach(a => s.add(a.date));
     return s;
-  }, [instructorId]);
+  }, [instructorId, storeAvailability, isBlackout]);
 
   const gridStart = startOfWeek(startOfMonth(viewMonth));
   const gridEnd = endOfWeek(endOfMonth(viewMonth));
@@ -525,7 +785,8 @@ function BookingCalendar({
           const isPast = isBefore(d, today);
           const isSelected = dateStr === selectedDate;
           const hasSlots = availableDates.has(dateStr);
-          const isDisabled = !inMonth || isPast || !hasSlots;
+          const isBlackoutDate = isBlackout(dateStr);
+          const isDisabled = !inMonth || isPast || !hasSlots || isBlackoutDate;
           return (
             <button
               type="button"
@@ -537,7 +798,7 @@ function BookingCalendar({
                   ? "invisible"
                   : isSelected
                     ? "text-white font-medium"
-                    : isPast || !hasSlots
+                    : isPast || !hasSlots || isBlackoutDate
                       ? "text-gray-300 cursor-not-allowed"
                       : isToday(d)
                         ? "border font-medium hover:bg-[#337C99]/5"

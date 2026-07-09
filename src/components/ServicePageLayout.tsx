@@ -1,8 +1,10 @@
+"use client";
 import Image from "next/image";
 import Link from "next/link";
 import Testimonials from "@/components/Testimonials";
 import CtaBanner from "@/components/CtaBanner";
 import InlineContactForm from "@/components/InlineContactForm";
+import { useAppStore } from "@/data/store/useAppStore";
 
 // A string renders as a <p>. A string[] renders as a <ul> bullet list.
 type ContentItem = string | string[];
@@ -69,6 +71,7 @@ export default function ServicePageLayout({
   ctaLabel = "Book a Session",
   relatedLinks,
 }: ServicePageProps) {
+  const { phone, phoneHref } = useAppStore(s => s.facilitySettings);
   return (
     <>
       {/* Hero */}
@@ -139,10 +142,10 @@ export default function ServicePageLayout({
             <div className="lg:col-span-5 lg:sticky lg:top-24">
               <InlineContactForm />
               <a
-                href="tel:+14438651639"
+                href={phoneHref}
                 className="block text-center text-[#6c757d] hover:text-[#212529] text-sm mt-3 transition-colors"
               >
-                Or call <span className="font-semibold">(443) 865-1639</span>
+                Or call <span className="font-semibold">{phone}</span>
               </a>
             </div>
           </div>

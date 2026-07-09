@@ -108,6 +108,7 @@ export type NotificationRecord = {
   recipientEmail: string;
   notificationType:
     | "confirmation"
+    | "waitlist"
     | "reminder_24hr"
     | "reminder_2hr_sms"
     | "change"

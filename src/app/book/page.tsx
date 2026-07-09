@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import {
@@ -78,6 +78,14 @@ function generateRef() {
 const STEPS = ["Instructor", "Date & Time", "Options", "Participant Details", "Review"];
 
 export default function BookPage() {
+  return (
+    <Suspense>
+      <BookPageInner />
+    </Suspense>
+  );
+}
+
+function BookPageInner() {
   const searchParams = useSearchParams();
   const [step, setStep] = useState<Step>(1);
   const [form, setForm] = useState<BookingForm>(INITIAL_FORM);

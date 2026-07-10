@@ -1,10 +1,8 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Toast from "@/components/Toast";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,8 +18,7 @@ export default function AdminLoginPage() {
         body: JSON.stringify({ action: "login", username, password }),
       });
       if (res.ok) {
-        setToast({ message: "Welcome back, Alexis!", type: "success" });
-        setTimeout(() => router.push("/admin"), 800);
+        window.location.href = "/admin";
       } else {
         setToast({ message: "Invalid username or password.", type: "error" });
         setLoading(false);

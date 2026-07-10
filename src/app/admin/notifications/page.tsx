@@ -1,11 +1,15 @@
 "use client";
 import { useState } from "react";
-import { MOCK_NOTIFICATIONS } from "@/data/mock/notifications";
+import { useAppStore } from "@/data/store/useAppStore";
+import { MockDataService } from "@/data/service/MockDataService";
+
+const db = new MockDataService();
 import Toast from "@/components/Toast";
 import type { NotificationRecord } from "@/data/mock/notifications";
 
 const TYPE_LABELS: Record<NotificationRecord["notificationType"], string> = {
   confirmation: "Confirmation",
+  waitlist: "Waitlist",
   reminder_24hr: "24hr Reminder",
   reminder_2hr_sms: "2hr SMS Reminder",
   change: "Change",
@@ -28,7 +32,7 @@ const STATUS_BADGE: Record<NotificationRecord["deliveryStatus"], string> = {
 const PAGE_SIZE = 30;
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
+  const notifications = useAppStore(s => s.notifications);
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -46,7 +50,7 @@ export default function NotificationsPage() {
   });
 
   function retryNotification(id: string) {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, deliveryStatus: "pending" as const } : n));
+    db.updateNotificationStatus(id, "pending");
     setToast({ message: "Notification queued for retry.", type: "info" });
   }
 

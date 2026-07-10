@@ -1,6 +1,8 @@
+"use client";
 import Link from "next/link";
 import Image from "next/image";
-import { OPERATING_HOURS } from "@/data/mock/schedule";
+import { useAppStore } from "@/data/store/useAppStore";
+import type { OperatingHours } from "@/data/types";
 
 const DAY_ABBR: Record<string, string> = {
   Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed", Thursday: "Thu",
@@ -8,26 +10,27 @@ const DAY_ABBR: Record<string, string> = {
 };
 
 function fmtTime(t: string): string {
+  if (t === "24:00") return "12 AM";
   const [h, m] = t.split(":").map(Number);
   const suffix = h >= 12 ? "PM" : "AM";
   const hour = h % 12 || 12;
   return m === 0 ? `${hour} ${suffix}` : `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
-function groupedHours() {
+function groupedHours(operatingHours: OperatingHours[]) {
   const rows: { label: string; value: string }[] = [];
   let i = 0;
-  while (i < OPERATING_HOURS.length) {
-    const cur = OPERATING_HOURS[i];
+  while (i < operatingHours.length) {
+    const cur = operatingHours[i];
     let j = i + 1;
     while (
-      j < OPERATING_HOURS.length &&
-      OPERATING_HOURS[j].isClosed === cur.isClosed &&
-      OPERATING_HOURS[j].openTime === cur.openTime &&
-      OPERATING_HOURS[j].closeTime === cur.closeTime
+      j < operatingHours.length &&
+      operatingHours[j].isClosed === cur.isClosed &&
+      operatingHours[j].openTime === cur.openTime &&
+      operatingHours[j].closeTime === cur.closeTime
     ) j++;
     const start = DAY_ABBR[cur.dayOfWeek];
-    const end = j - 1 > i ? DAY_ABBR[OPERATING_HOURS[j - 1].dayOfWeek] : null;
+    const end = j - 1 > i ? DAY_ABBR[operatingHours[j - 1].dayOfWeek] : null;
     rows.push({
       label: end ? `${start}–${end}` : start,
       value: cur.isClosed ? "Closed" : `${fmtTime(cur.openTime)} – ${fmtTime(cur.closeTime)}`,
@@ -53,6 +56,8 @@ const FOOTER_COL2 = [
 ];
 
 export default function Footer() {
+  const { phone, phoneHref, email, addressLine1, addressLine2 } = useAppStore(s => s.facilitySettings);
+  const operatingHours = useAppStore(s => s.operatingHours);
   return (
     <footer className="bg-[#0a0a0a] border-t border-white/10">
       {/* Main footer */}
@@ -128,12 +133,12 @@ export default function Footer() {
 
             <h3 className="text-white text-sm font-semibold uppercase tracking-widest mb-4">Contact</h3>
             <address className="not-italic space-y-2">
-              <p className="text-white/55 text-sm">8274 Lokus Rd<br />Odenton, MD 21113</p>
-              <a href="tel:+14438651639" className="block text-white/55 hover:text-white text-sm transition-colors">
-                (443) 865-1639
+              <p className="text-white/55 text-sm">{addressLine1}<br />{addressLine2}</p>
+              <a href={phoneHref} className="block text-white/55 hover:text-white text-sm transition-colors">
+                {phone}
               </a>
               <div className="text-white/55 text-sm space-y-0.5">
-                {groupedHours().map(row => (
+                {groupedHours(operatingHours).map(row => (
                   <p key={row.label}>{row.label}: {row.value}</p>
                 ))}
               </div>

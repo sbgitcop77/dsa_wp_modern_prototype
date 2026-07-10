@@ -1,11 +1,11 @@
 "use client";
-import { useState } from "react";
-import { MOCK_BOOKINGS } from "@/data/mock/bookings";
-import { MOCK_INSTRUCTORS } from "@/data/mock/instructors";
-import { INSTRUCTOR_AVAILABILITY } from "@/data/mock/schedule";
+import { useState, useMemo } from "react";
+import { useAppStore } from "@/data/store/useAppStore";
+import { db } from "@/data/service";
+import { notifyBoth } from "@/data/service/notifyUtils";
 import Modal from "@/components/Modal";
 import Toast from "@/components/Toast";
-import type { Booking } from "@/data/mock/bookings";
+import type { Booking } from "@/data/types";
 
 function formatTime(t: string) {
   const [h, m] = t.split(":").map(Number);
@@ -17,23 +17,35 @@ function formatDate(d: string) {
   return `${m}-${day}-${y}`;
 }
 
-function StatusBadge({ status }: { status: Booking["status"] }) {
-  const map = { confirmed: "badge-green", cancelled: "badge-red", no_show: "badge-yellow", completed: "badge-gray" };
-  return <span className={map[status]}>{status.replace("_", " ")}</span>;
+function StatusBadge({ status, conflictReason }: { status: Booking["status"]; conflictReason?: Booking["conflictReason"] }) {
+  const map: Record<string, string> = {
+    confirmed: "badge-green",
+    cancelled: "badge-red",
+    no_show: "badge-yellow",
+    completed: "badge-gray",
+    waitlisted: "badge-orange",
+  };
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <span className={map[status] ?? "badge-gray"}>{status.replace("_", " ")}</span>
+      {status === "waitlisted" && conflictReason && (
+        <span className="text-[10px] text-amber-700">
+          {conflictReason === "instructor_conflict" ? "Instructor conflict" : "Lane at capacity"}
+        </span>
+      )}
+    </span>
+  );
 }
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const _d = new Date();
+const TODAY = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, "0")}-${String(_d.getDate()).padStart(2, "0")}`;
 
-const BOOKING_SLOTS: string[] = [];
-for (let h = 9; h < 21; h++) {
-  BOOKING_SLOTS.push(`${String(h).padStart(2, "0")}:00`);
-  BOOKING_SLOTS.push(`${String(h).padStart(2, "0")}:30`);
-}
 
 const PAGE_SIZE = 20;
 
 export default function BookingsPage() {
-  const [bookings, setBookings] = useState(MOCK_BOOKINGS);
+  const storeBookings = useAppStore(s => s.bookings);
+  const storeInstructors = useAppStore(s => s.instructors);
   const [timeframe, setTimeframe] = useState<"upcoming" | "past">("upcoming");
   const [search, setSearch] = useState("");
   const [instFilter, setInstFilter] = useState("all");
@@ -47,13 +59,70 @@ export default function BookingsPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [editBooking, setEditBooking] = useState<Booking | null>(null);
   const [editForm, setEditForm] = useState({ date: "", time: "", instructorId: "", duration: "60" });
-  const [rescheduleScope, setRescheduleScope] = useState<"single" | "series">("single");
+  const storeAvailability = useAppStore(s => s.availability);
+  const storeBlackouts = useAppStore(s => s.blackouts);
+  const activeInstructors = useMemo(() => storeInstructors.filter(i => i.isActive), [storeInstructors]);
+  const blackoutDates = useMemo(() => new Set(storeBlackouts.map(b => b.date)), [storeBlackouts]);
 
-  const activeInstructors = MOCK_INSTRUCTORS.filter(i => i.isActive);
+  const rescheduleAvailDates = useMemo(() => {
+    if (!editBooking) return [];
+    return storeAvailability
+      .filter(a => a.instructorId === editForm.instructorId && a.date > TODAY && a.slots.length > 0 && !blackoutDates.has(a.date))
+      .map(a => a.date)
+      .sort();
+  }, [storeAvailability, editForm.instructorId, editBooking, blackoutDates]);
 
-  const filtered = bookings.filter(b => {
-    if (timeframe === "upcoming" && b.date <= TODAY) return false;
-    if (timeframe === "past" && b.date > TODAY) return false;
+  const facilitySettings = useAppStore(s => s.facilitySettings);
+
+  const rescheduleAvailSlots = useMemo(() => {
+    if (!editBooking) return [];
+    const av = storeAvailability.find(a => a.instructorId === editForm.instructorId && a.date === editForm.date);
+    if (!av) return [];
+    const dur = editBooking.durationMinutes;
+    const LANE_TOTAL = facilitySettings.activeLanes ?? 4;
+    const laneInstructorIds = new Set(storeInstructors.filter(i => i.instructor_type !== "non_lane").map(i => i.id));
+    return av.slots.filter(slot => {
+      const [sh, sm] = slot.split(":").map(Number);
+      const slotStart = sh * 60 + sm;
+      const slotEnd = slotStart + dur;
+      // Must fit within instructor's availability window
+      if (av.endTime) {
+        const [eh, em] = av.endTime.split(":").map(Number);
+        if (slotEnd > eh * 60 + em) return false;
+      }
+      // Instructor conflict
+      const instructorConflict = storeBookings.some(b =>
+        b.id !== editBooking.id &&
+        b.instructorId === editForm.instructorId &&
+        b.date === editForm.date &&
+        b.status === "confirmed" &&
+        (() => {
+          const [bh, bm] = b.startTime.split(":").map(Number);
+          const [eh, em] = b.endTime.split(":").map(Number);
+          return slotStart < eh * 60 + em && slotEnd > bh * 60 + bm;
+        })()
+      );
+      if (instructorConflict) return false;
+      // Lane capacity
+      const laneCount = storeBookings.filter(b =>
+        b.id !== editBooking.id &&
+        b.date === editForm.date &&
+        b.status === "confirmed" &&
+        laneInstructorIds.has(b.instructorId) &&
+        (() => {
+          const [bh, bm] = b.startTime.split(":").map(Number);
+          const [eh, em] = b.endTime.split(":").map(Number);
+          return slotStart < eh * 60 + em && slotEnd > bh * 60 + bm;
+        })()
+      ).length;
+      if (laneCount >= LANE_TOTAL) return false;
+      return true;
+    });
+  }, [storeAvailability, editForm.instructorId, editForm.date, editBooking, storeBookings, storeInstructors, facilitySettings]);
+
+  const filtered = useMemo(() => storeBookings.filter(b => {
+    if (timeframe === "upcoming" && b.date < TODAY) return false;
+    if (timeframe === "past" && b.date >= TODAY) return false;
     const q = search.toLowerCase();
     if (q && !b.customerName.toLowerCase().includes(q) && !b.bookingReference.toLowerCase().includes(q)) return false;
     if (instFilter !== "all" && b.instructorId !== instFilter) return false;
@@ -61,28 +130,53 @@ export default function BookingsPage() {
     if (dateFrom && b.date < dateFrom) return false;
     if (dateTo && b.date > dateTo) return false;
     return true;
-  }).sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.startTime.localeCompare(b.startTime));
+  }).sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.startTime.localeCompare(b.startTime)),
+  [storeBookings, timeframe, search, instFilter, statusFilter, dateFrom, dateTo]);
 
   function handleCancel() {
     if (!selected) return;
     const cancelSeries = cancelScope === "series" || cancelScope === "confirm-series";
-    setBookings(prev => prev.map(b => {
-      if (cancelSeries && selected.recurringSeriesId && b.recurringSeriesId === selected.recurringSeriesId) {
-        return { ...b, status: "cancelled" as const, cancelledBy: "admin" as const, cancellationReason: cancelNote };
-      }
-      if (b.id === selected.id) return { ...b, status: "cancelled" as const, cancelledBy: "admin" as const, cancellationReason: cancelNote };
-      return b;
-    }));
+    if (cancelSeries && selected.recurringSeriesId) {
+      const cancelled = db.cancelSeries(selected.recurringSeriesId, TODAY, "admin", cancelNote || undefined);
+      cancelled.forEach(b => {
+        const customer = db.getCustomers().find(c => c.id === b.customerId);
+        notifyBoth(db, {
+          bookingId: b.id, bookingReference: b.bookingReference,
+          recipientName: b.customerName, recipientEmail: customer?.email ?? "",
+          notificationType: "cancellation", customerId: b.customerId,
+        });
+      });
+    } else {
+      db.cancelBooking(selected.id, "admin", cancelNote || undefined);
+      const customer = db.getCustomers().find(c => c.id === selected.customerId);
+      notifyBoth(db, {
+        bookingId: selected.id, bookingReference: selected.bookingReference,
+        recipientName: selected.customerName, recipientEmail: customer?.email ?? "",
+        notificationType: "cancellation", customerId: selected.customerId,
+      });
+    }
     setToast({ message: cancelSeries ? "All series sessions cancelled." : "Booking cancelled.", type: "success" });
     setSelected(null);
     setCancelNote("");
     setCancelScope("single");
   }
 
+  function handleConfirmWaitlisted() {
+    if (!selected) return;
+    db.confirmWaitlisted(selected.id);
+    const customer = db.getCustomers().find(c => c.id === selected.customerId);
+    notifyBoth(db, {
+      bookingId: selected.id, bookingReference: selected.bookingReference,
+      recipientName: selected.customerName, recipientEmail: customer?.email ?? "",
+      notificationType: "confirmation", customerId: selected.customerId,
+    });
+    setToast({ message: "Waitlisted session confirmed.", type: "success" });
+    setSelected(null);
+  }
+
   function openEdit(b: Booking) {
     setEditBooking(b);
     setEditForm({ date: b.date, time: b.startTime, instructorId: b.instructorId, duration: String(b.durationMinutes) });
-    setRescheduleScope("single");
     setSelected(null);
   }
 
@@ -90,43 +184,14 @@ export default function BookingsPage() {
     e.preventDefault();
     if (!editBooking) return;
     const dur = parseInt(editForm.duration) as 30 | 60;
-    const [h, m] = editForm.time.split(":").map(Number);
-    const endTotal = h * 60 + m + dur;
-    const endTime = `${String(Math.floor(endTotal / 60)).padStart(2, "0")}:${String(endTotal % 60).padStart(2, "0")}`;
-    const instructor = activeInstructors.find(i => i.id === editForm.instructorId);
-    const instructorName = instructor ? `${instructor.firstName} ${instructor.lastName}` : editBooking.instructorName;
-
-    if (rescheduleScope === "series" && editBooking.recurringSeriesId) {
-      setBookings(prev => prev.map(b => {
-        if (b.recurringSeriesId !== editBooking.recurringSeriesId || b.date < TODAY) return b;
-        const sessionEnd = h * 60 + m + dur;
-        return {
-          ...b,
-          startTime: editForm.time,
-          endTime: `${String(Math.floor(sessionEnd / 60)).padStart(2, "0")}:${String(sessionEnd % 60).padStart(2, "0")}`,
-          durationMinutes: dur,
-          instructorId: editForm.instructorId,
-          instructorName,
-        };
-      }));
-      setToast({ message: "All upcoming sessions in this series have been updated.", type: "success" });
-    } else {
-      setBookings(prev => prev.map(b => b.id !== editBooking.id ? b : {
-        ...b,
-        date: editForm.date,
-        startTime: editForm.time,
-        endTime,
-        durationMinutes: dur,
-        instructorId: editForm.instructorId,
-        instructorName,
-      }));
-      const av = INSTRUCTOR_AVAILABILITY.find(a => a.instructorId === editForm.instructorId && a.date === editForm.date);
-      const available = av?.slots.includes(editForm.time) ?? false;
-      setToast({
-        message: available ? "Booking rescheduled." : "Booking rescheduled. Note: instructor availability not confirmed for this slot.",
-        type: available ? "success" : "info",
-      });
-    }
+    db.updateBooking(editBooking.id, { date: editForm.date, startTime: editForm.time, durationMinutes: dur });
+    const customer = db.getCustomers().find(c => c.id === editBooking.customerId);
+    notifyBoth(db, {
+      bookingId: editBooking.id, bookingReference: editBooking.bookingReference,
+      recipientName: editBooking.customerName, recipientEmail: customer?.email ?? "",
+      notificationType: "change", customerId: editBooking.customerId,
+    });
+    setToast({ message: "Booking rescheduled.", type: "success" });
     setEditBooking(null);
   }
 
@@ -193,6 +258,7 @@ export default function BookingsPage() {
           <option value="cancelled">Cancelled</option>
           <option value="no_show">No Show</option>
           <option value="completed">Completed</option>
+          <option value="waitlisted">Waitlisted</option>
         </select>
         <div className="flex items-center gap-1.5">
           <input type="date" className="input text-sm py-1.5 w-36" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="From date" />
@@ -216,7 +282,7 @@ export default function BookingsPage() {
                 <div>Time /</div>
                 <div className="font-normal normal-case tracking-normal text-[#6c757d]/70">Duration</div>
               </th>
-              {["Type","Child's Age","Status"].map(h => (
+              {["Type","Child","Status"].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
               <th className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">
@@ -247,10 +313,15 @@ export default function BookingsPage() {
                   </div>
                   {b.isForChild && <span className="badge-purple mt-0.5">Child</span>}
                 </td>
-                <td className="px-4 py-3 text-[#6c757d] text-center">
-                  {b.isForChild && b.childAge ? b.childAge : <span>—</span>}
+                <td className="px-4 py-3 text-[#6c757d]">
+                  {b.isForChild ? (
+                    <>
+                      {b.childName && <div className="text-[#212529] font-medium text-sm">{b.childName}</div>}
+                      {b.childAge && <div className="text-xs">Age {b.childAge}</div>}
+                    </>
+                  ) : <span>—</span>}
                 </td>
-                <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
+                <td className="px-4 py-3"><StatusBadge status={b.status} conflictReason={b.conflictReason} /></td>
                 <td className="px-4 py-3 text-[#6c757d]">
                   {b.isForChild && b.bookedByName ? (
                     <>
@@ -289,6 +360,11 @@ export default function BookingsPage() {
           footer={
             <>
               <button onClick={() => setSelected(null)} className="btn-secondary">Close</button>
+              {selected.status === "waitlisted" && (
+                <button onClick={handleConfirmWaitlisted} className="btn-primary">
+                  Confirm Session
+                </button>
+              )}
               {selected.status === "confirmed" && (
                 <>
                   <button onClick={() => openEdit(selected)} className="btn-secondary">Reschedule</button>
@@ -313,9 +389,10 @@ export default function BookingsPage() {
             <Row label="Date" value={formatDate(selected.date)} />
             <Row label="Time" value={`${formatTime(selected.startTime)} – ${formatTime(selected.endTime)}`} />
             <Row label="Duration" value={`${selected.durationMinutes} min`} />
-            <Row label="Lane" value={`Lane ${selected.laneAssigned}`} />
+            {selected.laneAssigned && <Row label="Lane" value={`Lane ${selected.laneAssigned}`} />}
             {selected.isForChild && (
               <>
+                {selected.childName && <Row label="Child's Name" value={selected.childName} />}
                 <Row label="Child's Age" value={`${selected.childAge} yrs`} />
                 <Row label="Booked By" value={selected.bookedByName ?? selected.customerName} />
                 <Row label="Relationship" value={selected.relationshipToCustomer ?? ""} />
@@ -369,51 +446,55 @@ export default function BookingsPage() {
         >
           <form id="edit-booking-form" onSubmit={handleEdit} className="space-y-4">
             {editBooking.isRecurring && (
-              <div className="space-y-2">
-                <label className="label">Apply changes to</label>
-                {(["single", "series"] as const).map(scope => (
-                  <label key={scope} className="flex items-center gap-3 cursor-pointer p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50">
-                    <input type="radio" checked={rescheduleScope === scope} onChange={() => setRescheduleScope(scope)} />
-                    <div>
-                      <p className="font-medium text-[#212529] text-sm">
-                        {scope === "single" ? "This session only" : "All upcoming sessions in this series"}
-                      </p>
-                      <p className="text-xs text-[#6c757d]">
-                        {scope === "single"
-                          ? "Only this booking will be updated. Other sessions in the series stay as scheduled."
-                          : "Time, instructor, and duration will update for all future sessions. Each session keeps its original date."}
-                      </p>
-                    </div>
-                  </label>
-                ))}
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="font-medium mb-0.5">Part of a recurring series</p>
+                <p>Rescheduling applies to this session only. To move the full series, cancel it and re-book a new recurring series.</p>
               </div>
             )}
+            <div>
+              <label className="label">Instructor</label>
+              <p className="input bg-gray-50 text-[#6c757d] cursor-default">{editBooking.instructorName}</p>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="label">
-                  Date{rescheduleScope === "series" && <span className="text-[#6c757d] font-normal"> (this session only)</span>}
-                </label>
-                <input className="input" type="date" required value={editForm.date} disabled={rescheduleScope === "series"} onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))} />
+                <label className="label">Date</label>
+                <select
+                  className="input"
+                  required
+                  value={editForm.date}
+                  onChange={e => setEditForm(f => ({ ...f, date: e.target.value, time: "" }))}
+                >
+                  <option value="">— Select a date —</option>
+                  {rescheduleAvailDates.map(d => (
+                    <option key={d} value={d}>{formatDate(d)}</option>
+                  ))}
+                  {rescheduleAvailDates.length === 0 && (
+                    <option disabled>No upcoming availability</option>
+                  )}
+                </select>
               </div>
               <div>
                 <label className="label">Time</label>
-                <select className="input" required value={editForm.time} onChange={e => setEditForm(f => ({ ...f, time: e.target.value }))}>
-                  {BOOKING_SLOTS.map(slot => <option key={slot} value={slot}>{formatTime(slot)}</option>)}
+                <select
+                  className="input"
+                  required
+                  value={editForm.time}
+                  onChange={e => setEditForm(f => ({ ...f, time: e.target.value }))}
+                  disabled={!editForm.date}
+                >
+                  <option value="">— Select a time —</option>
+                  {rescheduleAvailSlots.map(slot => (
+                    <option key={slot} value={slot}>{formatTime(slot)}</option>
+                  ))}
+                  {rescheduleAvailSlots.length === 0 && editForm.date && (
+                    <option disabled>No slots available for this date</option>
+                  )}
                 </select>
               </div>
             </div>
             <div>
-              <label className="label">Instructor</label>
-              <select className="input" value={editForm.instructorId} onChange={e => setEditForm(f => ({ ...f, instructorId: e.target.value }))}>
-                {activeInstructors.map(i => <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>)}
-              </select>
-            </div>
-            <div>
               <label className="label">Duration</label>
-              <select className="input" value={editForm.duration} onChange={e => setEditForm(f => ({ ...f, duration: e.target.value }))}>
-                <option value="30">30 minutes</option>
-                <option value="60">60 minutes</option>
-              </select>
+              <p className="input bg-gray-50 text-[#6c757d] cursor-default">{editForm.duration} minutes</p>
             </div>
           </form>
         </Modal>

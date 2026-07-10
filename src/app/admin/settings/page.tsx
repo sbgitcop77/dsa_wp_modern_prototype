@@ -1,18 +1,10 @@
 "use client";
 import { useState } from "react";
+import { db } from "@/data/service";
+import { useAppStore } from "@/data/store/useAppStore";
 import Toast from "@/components/Toast";
 
 type Tab = "general" | "lanes" | "notifications" | "cancellation" | "security";
-
-const INITIAL_GENERAL = {
-  facilityName: "Diamond Sports Academy",
-  location: "Odenton, Maryland",
-  email: "admin@diamondsports.com",
-  phone: "443-555-0100",
-  website: "https://thediamondsportsacademy.com",
-  timezone: "America/New_York",
-  activeLanes: "4",
-};
 
 const INITIAL_NOTIFICATIONS = {
   sendConfirmationEmail: true,
@@ -31,9 +23,24 @@ const INITIAL_CANCELLATION = {
   requireCancellationReason: false,
 };
 
+type LaneConflictBooking = { bookingReference: string; customerName: string; date: string; startTime: string; laneAssigned: number };
+
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>("general");
-  const [general, setGeneral] = useState(INITIAL_GENERAL);
+  const storedSettings = useAppStore(s => s.facilitySettings);
+  const bookings = useAppStore(s => s.bookings);
+  const [laneConflict, setLaneConflict] = useState<LaneConflictBooking[] | null>(null);
+  const [pendingLaneCount, setPendingLaneCount] = useState<number | null>(null);
+  const [general, setGeneral] = useState({
+    facilityName: storedSettings.facilityName,
+    addressLine1: storedSettings.addressLine1,
+    addressLine2: storedSettings.addressLine2,
+    email: storedSettings.email,
+    phone: storedSettings.phone,
+    website: storedSettings.website,
+    timezone: storedSettings.timezone,
+    activeLanes: String(storedSettings.activeLanes),
+  });
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
   const [cancellation, setCancellation] = useState(INITIAL_CANCELLATION);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -41,9 +48,48 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
+  function commitLaneSave(newCount: number) {
+    const phoneDigits = general.phone.replace(/\D/g, "");
+    db.updateFacilitySettings({
+      facilityName: general.facilityName,
+      addressLine1: general.addressLine1,
+      addressLine2: general.addressLine2,
+      email: general.email,
+      phone: general.phone,
+      phoneHref: `tel:+1${phoneDigits}`,
+      website: general.website,
+      timezone: general.timezone,
+      activeLanes: newCount,
+    });
+    setLaneConflict(null);
+    setPendingLaneCount(null);
+    setToast({ message: "Settings saved.", type: "success" });
+  }
+
   function saveGeneral(e: React.FormEvent) {
     e.preventDefault();
-    setToast({ message: "General settings saved.", type: "success" });
+    const newCount = parseInt(general.activeLanes, 10) || 4;
+    const currentCount = storedSettings.activeLanes ?? 4;
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (newCount < currentCount) {
+      const affected = bookings.filter(
+        b => b.status === "confirmed" && b.date >= today && (b.laneAssigned ?? 0) > newCount
+      );
+      if (affected.length > 0) {
+        setPendingLaneCount(newCount);
+        setLaneConflict(affected.map(b => ({
+          bookingReference: b.bookingReference,
+          customerName: b.customerName,
+          date: b.date,
+          startTime: b.startTime,
+          laneAssigned: b.laneAssigned ?? 0,
+        })));
+        return;
+      }
+    }
+
+    commitLaneSave(newCount);
   }
 
   function saveNotifications(e: React.FormEvent) {
@@ -113,16 +159,20 @@ export default function SettingsPage() {
           <form onSubmit={saveGeneral} className="card p-6 space-y-4">
             <h2 className="font-semibold text-[#212529] mb-2">Facility Information</h2>
             <div className="grid sm:grid-cols-2 gap-4">
-              <div>
+              <div className="sm:col-span-2">
                 <label className="label">Facility Name</label>
                 <input className="input" value={general.facilityName} onChange={e => setGeneral(g => ({ ...g, facilityName: e.target.value }))} />
               </div>
               <div>
-                <label className="label">Location</label>
-                <input className="input" value={general.location} onChange={e => setGeneral(g => ({ ...g, location: e.target.value }))} />
+                <label className="label">Address Line 1</label>
+                <input className="input" value={general.addressLine1} onChange={e => setGeneral(g => ({ ...g, addressLine1: e.target.value }))} placeholder="Street address" />
               </div>
               <div>
-                <label className="label">Contact Email</label>
+                <label className="label">Address Line 2</label>
+                <input className="input" value={general.addressLine2} onChange={e => setGeneral(g => ({ ...g, addressLine2: e.target.value }))} placeholder="City, State ZIP" />
+              </div>
+              <div>
+                <label className="label">Email</label>
                 <input className="input" type="email" value={general.email} onChange={e => setGeneral(g => ({ ...g, email: e.target.value }))} />
               </div>
               <div>
@@ -345,6 +395,60 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* Lane conflict modal */}
+      {laneConflict && pendingLaneCount !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6">
+            <h2 className="text-lg font-bold text-[#212529] mb-1">Lane Count Conflict</h2>
+            <p className="text-sm text-[#6c757d] mb-4">
+              Reducing to <strong>{pendingLaneCount} lane{pendingLaneCount !== 1 ? "s" : ""}</strong> affects{" "}
+              <strong>{laneConflict.length} confirmed upcoming booking{laneConflict.length !== 1 ? "s" : ""}</strong> currently
+              assigned to lanes above {pendingLaneCount}. These bookings will not be cancelled automatically — you must
+              review and handle them manually.
+            </p>
+            <div className="border border-gray-200 rounded-lg overflow-hidden mb-5">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-[#6c757d] uppercase">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Reference</th>
+                    <th className="px-3 py-2 text-left">Customer</th>
+                    <th className="px-3 py-2 text-left">Date</th>
+                    <th className="px-3 py-2 text-left">Lane</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {laneConflict.map(b => (
+                    <tr key={b.bookingReference}>
+                      <td className="px-3 py-2 font-mono text-xs text-[#337C99]">{b.bookingReference}</td>
+                      <td className="px-3 py-2 text-[#212529]">{b.customerName}</td>
+                      <td className="px-3 py-2 text-[#212529]">{b.date}</td>
+                      <td className="px-3 py-2 font-semibold text-[#b6070e]">Lane {b.laneAssigned}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                className="btn-secondary text-sm"
+                onClick={() => { setLaneConflict(null); setPendingLaneCount(null); }}
+              >
+                Cancel (keep current count)
+              </button>
+              <button
+                type="button"
+                className="btn-primary text-sm"
+                style={{ backgroundColor: "#b6070e", borderColor: "#b6070e" }}
+                onClick={() => commitLaneSave(pendingLaneCount)}
+              >
+                Save Anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

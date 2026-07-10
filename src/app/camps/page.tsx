@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import ServicePageLayout from "@/components/ServicePageLayout";
+import { SITE_PHONE } from "@/data/siteConfig";
 
 export const metadata: Metadata = {
   title: "Baseball & Softball Camps",
@@ -46,7 +47,7 @@ export default function CampsPage() {
           "Fall Development Camp: Focused training to reinforce good habits and consistency before the offseason.",
           "Winter Elite Camp: Intensive training with advanced drills and small group instruction to refine key skills.",
         ],
-        "For upcoming dates, registration details, or questions about age groups, please visit our contact page or call us at (443) 865-1639.",
+        `For upcoming dates, registration details, or questions about age groups, please visit our contact page or call us at ${SITE_PHONE}.`,
       ]}
       closingTagline="Train with Passion. Play with Purpose."
       closingParagraph="At The Diamond Sports Academy, we believe that greatness starts with preparation and effort. Our camps are built to motivate athletes to challenge themselves, support one another, and grow into confident players and leaders. With expert guidance and state-of-the-art training facilities, every athlete gains the foundation for success on the field and beyond."

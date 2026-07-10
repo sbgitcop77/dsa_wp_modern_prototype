@@ -10,10 +10,8 @@ export type OperatingHours = {
 
 export type Blackout = {
   id: string;
-  type: "facility" | "instructor";
-  instructorId?: string;
-  instructorName?: string;
   date: string;
+  isRecurring: boolean;
   reason: string;
 };
 
@@ -27,13 +25,13 @@ export type InstructorAvailability = {
 };
 
 export const OPERATING_HOURS: OperatingHours[] = [
-  { id: "oh1", dayOfWeek: "Monday",    openTime: "09:00", closeTime: "21:00", isClosed: false },
-  { id: "oh2", dayOfWeek: "Tuesday",   openTime: "09:00", closeTime: "21:00", isClosed: false },
-  { id: "oh3", dayOfWeek: "Wednesday", openTime: "09:00", closeTime: "21:00", isClosed: false },
-  { id: "oh4", dayOfWeek: "Thursday",  openTime: "09:00", closeTime: "21:00", isClosed: false },
-  { id: "oh5", dayOfWeek: "Friday",    openTime: "09:00", closeTime: "21:00", isClosed: false },
-  { id: "oh6", dayOfWeek: "Saturday",  openTime: "09:00", closeTime: "21:00", isClosed: false },
-  { id: "oh7", dayOfWeek: "Sunday",    openTime: "09:00", closeTime: "21:00", isClosed: false },
+  { id: "oh1", dayOfWeek: "Monday",    openTime: "06:00", closeTime: "24:00", isClosed: false },
+  { id: "oh2", dayOfWeek: "Tuesday",   openTime: "06:00", closeTime: "24:00", isClosed: false },
+  { id: "oh3", dayOfWeek: "Wednesday", openTime: "06:00", closeTime: "24:00", isClosed: false },
+  { id: "oh4", dayOfWeek: "Thursday",  openTime: "06:00", closeTime: "24:00", isClosed: false },
+  { id: "oh5", dayOfWeek: "Friday",    openTime: "06:00", closeTime: "24:00", isClosed: false },
+  { id: "oh6", dayOfWeek: "Saturday",  openTime: "06:00", closeTime: "24:00", isClosed: false },
+  { id: "oh7", dayOfWeek: "Sunday",    openTime: "06:00", closeTime: "24:00", isClosed: false },
 ];
 
 const ALL_SLOTS = [
@@ -86,11 +84,12 @@ const INSTRUCTOR_PATTERNS: InstructorPattern[] = [
 export const BLACKOUTS: Blackout[] = [];
 
 function isFacilityBlackout(dateStr: string): boolean {
-  return BLACKOUTS.some(b => b.type === "facility" && b.date === dateStr);
+  const mmdd = dateStr.slice(5); // MM-DD portion
+  return BLACKOUTS.some(b => b.isRecurring ? b.date.slice(5) === mmdd : b.date === dateStr);
 }
 
-function isInstructorBlackout(dateStr: string, instructorId: string): boolean {
-  return BLACKOUTS.some(b => b.type === "instructor" && b.date === dateStr && b.instructorId === instructorId);
+function isInstructorBlackout(_dateStr: string, _instructorId: string): boolean {
+  return false; // instructor unavailability is now managed via instructor availability slots
 }
 
 function generateInstructorAvailability(): InstructorAvailability[] {

@@ -1,35 +1,50 @@
 "use client";
 import { useState } from "react";
-import { OPERATING_HOURS, BLACKOUTS } from "@/data/mock/schedule";
-import { MOCK_INSTRUCTORS } from "@/data/mock/instructors";
-import { MOCK_BOOKINGS } from "@/data/mock/bookings";
+import { db } from "@/data/service";
+import { notifyBoth } from "@/data/service/notifyUtils";
 import Toast from "@/components/Toast";
 import Modal from "@/components/Modal";
-import type { OperatingHours, Blackout } from "@/data/mock/schedule";
-import type { Booking } from "@/data/mock/bookings";
+import type { OperatingHours, Booking } from "@/data/types";
 import { Plus, X } from "lucide-react";
 
 const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
 function formatTime(t: string) {
+  if (t === "24:00") return "12:00 AM (Midnight)";
   const [h, m] = t.split(":").map(Number);
-  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${displayH}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
+
+// 6:00 AM → 12:00 AM (Midnight) in 30-min increments
+const TIME_OPTIONS: { value: string; label: string }[] = (() => {
+  const opts = [];
+  for (let h = 6; h <= 24; h++) {
+    for (const m of [0, 30]) {
+      if (h === 24 && m === 30) break;
+      const value = `${String(h).padStart(2, "0")}:${m === 0 ? "00" : "30"}`;
+      const label = h === 24 ? "12:00 AM (Midnight)" : formatTime(value);
+      opts.push({ value, label });
+    }
+  }
+  return opts;
+})();
 
 type Tab = "hours" | "blackouts";
 
 export default function SchedulePage() {
   const [tab, setTab] = useState<Tab>("hours");
-  const [hours, setHours] = useState(OPERATING_HOURS);
-  const [blackouts, setBlackouts] = useState(BLACKOUTS);
+  const [hours, setHours] = useState(db.getOperatingHours());
+  const [blackouts, setBlackouts] = useState(db.getBlackouts());
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [showAddBlackout, setShowAddBlackout] = useState(false);
-  const [newBlackout, setNewBlackout] = useState({ date: "", reason: "", type: "facility" as "facility" | "instructor", instructorId: "" });
+  const [newBlackout, setNewBlackout] = useState({ date: "", reason: "", isRecurring: false });
   const [editHours, setEditHours] = useState<Record<string, Partial<OperatingHours>>>({});
   const [affectedBookings, setAffectedBookings] = useState<Booking[]>([]);
   const [showAffectedModal, setShowAffectedModal] = useState(false);
   const [affectedReason, setAffectedReason] = useState<"hours" | "blackout">("hours");
   const [pendingHours, setPendingHours] = useState<OperatingHours[] | null>(null);
+  const [pendingBlackout, setPendingBlackout] = useState<{ date: string; reason: string; isRecurring: boolean } | null>(null);
 
   function updateHour(id: string, field: keyof OperatingHours, value: string | boolean) {
     setEditHours(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
@@ -42,8 +57,7 @@ export default function SchedulePage() {
   }
 
   function affectedByHours(newHours: OperatingHours[]): Booking[] {
-    return MOCK_BOOKINGS.filter(b => {
-      if (b.status === "cancelled") return false;
+    return db.getBookings({ status: "confirmed" }).filter(b => {
       const dow = new Date(b.date + "T00:00:00").getDay();
       const oh = newHours.find(h => h.dayOfWeek === DAY_NAMES[dow]);
       if (!oh) return false;
@@ -58,13 +72,13 @@ export default function SchedulePage() {
     });
     const affected = affectedByHours(newHours);
     if (affected.length > 0) {
-      // Show conflict modal BEFORE saving — user must acknowledge
       setPendingHours(newHours);
       setAffectedBookings(affected);
       setAffectedReason("hours");
       setShowAffectedModal(true);
     } else {
-      setHours(newHours);
+      newHours.forEach(oh => db.updateOperatingHours(oh.id, oh));
+      setHours(db.getOperatingHours());
       setEditHours({});
       setToast({ message: "Operating hours saved.", type: "success" });
     }
@@ -72,7 +86,8 @@ export default function SchedulePage() {
 
   function confirmSaveHours() {
     if (!pendingHours) return;
-    setHours(pendingHours);
+    pendingHours.forEach(oh => db.updateOperatingHours(oh.id, oh));
+    setHours(db.getOperatingHours());
     setEditHours({});
     setPendingHours(null);
     setShowAffectedModal(false);
@@ -81,42 +96,64 @@ export default function SchedulePage() {
 
   function dismissAffectedModal() {
     setPendingHours(null);
+    setPendingBlackout(null);
     setShowAffectedModal(false);
   }
 
   function removeBlackout(id: string) {
-    setBlackouts(prev => prev.filter(b => b.id !== id));
+    db.deleteBlackout(id);
+    setBlackouts(db.getBlackouts());
     setToast({ message: "Blackout removed.", type: "info" });
   }
 
   function addBlackout(e: React.FormEvent) {
     e.preventDefault();
-    const id = `bl${Date.now()}`;
-    const blackoutDate = newBlackout.date;
-    const instructor = newBlackout.type === "instructor"
-      ? MOCK_INSTRUCTORS.find(i => i.id === newBlackout.instructorId)
-      : undefined;
-    const entry: Blackout = {
-      id,
-      date: newBlackout.date,
-      reason: newBlackout.reason,
-      type: newBlackout.type,
-      ...(instructor ? { instructorId: instructor.id, instructorName: `${instructor.firstName} ${instructor.lastName}` } : {}),
-    };
-    setBlackouts(prev => [...prev, entry]);
-    setNewBlackout({ date: "", reason: "", type: "facility", instructorId: "" });
-    setShowAddBlackout(false);
-    setToast({ message: "Blackout date added.", type: "success" });
-    const affected = MOCK_BOOKINGS.filter(b => {
-      if (b.status === "cancelled" || b.date !== blackoutDate) return false;
-      if (newBlackout.type === "instructor") return b.instructorId === newBlackout.instructorId;
-      return true;
-    });
+    const { date, reason, isRecurring } = newBlackout;
+    // Check confirmed + waitlisted bookings BEFORE saving the blackout
+    const allBookings = db.getBookings();
+    const affected = allBookings.filter(
+      b => b.date === date && (b.status === "confirmed" || b.status === "waitlisted")
+    );
     if (affected.length > 0) {
+      setPendingBlackout({ date, reason, isRecurring });
       setAffectedBookings(affected);
       setAffectedReason("blackout");
+      setNewBlackout({ date: "", reason: "", isRecurring: false });
+      setShowAddBlackout(false);
       setShowAffectedModal(true);
+    } else {
+      db.createBlackout({ date, reason, isRecurring });
+      setBlackouts(db.getBlackouts());
+      setNewBlackout({ date: "", reason: "", isRecurring: false });
+      setShowAddBlackout(false);
+      setToast({ message: "Blackout date added.", type: "success" });
     }
+  }
+
+  function cancelAllBlackoutBookings() {
+    // Save the blackout first
+    if (pendingBlackout) {
+      db.createBlackout(pendingBlackout);
+      setBlackouts(db.getBlackouts());
+    }
+    // Cancel every affected booking and log a notification for each
+    const count = affectedBookings.length;
+    affectedBookings.forEach(b => {
+      db.cancelBooking(b.id, "admin", "Session cancelled — facility blackout date");
+      const customer = db.getCustomers().find(c => c.id === b.customerId);
+      notifyBoth(db, {
+        bookingId: b.id,
+        bookingReference: b.bookingReference,
+        recipientName: b.customerName,
+        recipientEmail: customer?.email ?? "",
+        notificationType: "cancellation",
+        customerId: b.customerId,
+      });
+    });
+    setPendingBlackout(null);
+    setShowAffectedModal(false);
+    setAffectedBookings([]);
+    setToast({ message: `Blackout added. ${count} booking${count !== 1 ? "s" : ""} cancelled and customers notified.`, type: "info" });
   }
 
   const tabs: { key: Tab; label: string }[] = [
@@ -181,22 +218,40 @@ export default function SchedulePage() {
                       </label>
                     </td>
                     <td className="px-4 py-3">
-                      <input
-                        type="time"
+                      <select
                         disabled={isClosed}
                         value={(getHour(oh, "openTime") as string) ?? oh.openTime}
-                        onChange={e => updateHour(oh.id, "openTime", e.target.value)}
-                        className="input text-sm py-1 w-32 disabled:opacity-40 disabled:cursor-not-allowed"
-                      />
+                        onChange={e => {
+                          const newOpen = e.target.value;
+                          updateHour(oh.id, "openTime", newOpen);
+                          const curClose = (getHour(oh, "closeTime") as string) ?? oh.closeTime;
+                          if (curClose <= newOpen) updateHour(oh.id, "closeTime", "");
+                        }}
+                        className="input text-sm py-1 w-44 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {TIME_OPTIONS.slice(0, -1).map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-4 py-3">
-                      <input
-                        type="time"
-                        disabled={isClosed}
-                        value={(getHour(oh, "closeTime") as string) ?? oh.closeTime}
-                        onChange={e => updateHour(oh.id, "closeTime", e.target.value)}
-                        className="input text-sm py-1 w-32 disabled:opacity-40 disabled:cursor-not-allowed"
-                      />
+                      {(() => {
+                        const curOpen = (getHour(oh, "openTime") as string) ?? oh.openTime;
+                        const closeOpts = TIME_OPTIONS.filter(o => o.value > curOpen);
+                        return (
+                          <select
+                            disabled={isClosed}
+                            value={(getHour(oh, "closeTime") as string) ?? oh.closeTime}
+                            onChange={e => updateHour(oh.id, "closeTime", e.target.value)}
+                            className="input text-sm py-1 w-44 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <option value="">— Select close time —</option>
+                            {closeOpts.map(o => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </select>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );
@@ -218,23 +273,26 @@ export default function SchedulePage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200">
                 <tr>
-                  {["Date", "Type", "Instructor", "Reason", ""].map(h => (
+                  {["Date", "Recurrence", "Reason", ""].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {blackouts.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-[#6c757d]">No blackout dates</td></tr>
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-[#6c757d]">No blackout dates</td></tr>
                 ) : blackouts.map(bl => (
                   <tr key={bl.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-[#212529]">{bl.date}</td>
-                    <td className="px-4 py-3">
-                      {bl.type === "facility"
-                        ? <span className="badge-red">Facility</span>
-                        : <span className="badge-blue">Instructor</span>}
+                    <td className="px-4 py-3 font-medium text-[#212529]">
+                      {bl.isRecurring
+                        ? new Date(`2000-${bl.date.slice(5)}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                        : new Date(`${bl.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </td>
-                    <td className="px-4 py-3 text-[#6c757d]">{bl.instructorName ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      {bl.isRecurring
+                        ? <span className="badge-blue">Every year</span>
+                        : <span className="badge-gray">One-time</span>}
+                    </td>
                     <td className="px-4 py-3 text-[#6c757d]">{bl.reason}</td>
                     <td className="px-4 py-3">
                       <button onClick={() => removeBlackout(bl.id)} className="text-[#6c757d] hover:text-[#f33b41]">
@@ -249,16 +307,23 @@ export default function SchedulePage() {
         </div>
       )}
 
-      {/* Affected Bookings Modal — for blackout (informational only) */}
+      {/* Affected Bookings Modal — blackout date conflicts */}
       {showAffectedModal && affectedReason === "blackout" && (
         <Modal
-          title="Affected Bookings"
+          title="Active Bookings on This Date"
           onClose={dismissAffectedModal}
-          footer={<button onClick={dismissAffectedModal} className="btn-primary">OK</button>}
+          footer={
+            <>
+              <button onClick={dismissAffectedModal} className="btn-secondary">Don't Add Blackout</button>
+              <button onClick={cancelAllBlackoutBookings} className="btn-danger">
+                Add Blackout &amp; Cancel All {affectedBookings.length} Booking{affectedBookings.length !== 1 ? "s" : ""}
+              </button>
+            </>
+          }
         >
           <div className="space-y-3">
             <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-              The following confirmed bookings are scheduled on the newly blacked-out date. Review and reassign or cancel as needed.
+              <strong>{affectedBookings.length} booking{affectedBookings.length !== 1 ? "s" : ""}</strong> ({affectedBookings.filter(b => b.status === "confirmed").length} confirmed, {affectedBookings.filter(b => b.status === "waitlisted").length} waitlisted) exist on this date. Adding the blackout will cancel all of them and send a cancellation email to each customer. This cannot be undone.
             </p>
             <AffectedTable bookings={affectedBookings} />
           </div>
@@ -305,44 +370,36 @@ export default function SchedulePage() {
                 className="input"
                 type="date"
                 required
+                min={new Date().toISOString().slice(0, 10)}
                 value={newBlackout.date}
                 onChange={e => setNewBlackout(f => ({ ...f, date: e.target.value }))}
               />
             </div>
             <div>
-              <label className="label">Type</label>
-              <select
-                className="input"
-                value={newBlackout.type}
-                onChange={e => setNewBlackout(f => ({ ...f, type: e.target.value as "facility" | "instructor", instructorId: "" }))}
-              >
-                <option value="facility">Facility-wide</option>
-                <option value="instructor">Instructor-specific</option>
-              </select>
-            </div>
-            {newBlackout.type === "instructor" && (
-              <div>
-                <label className="label">Instructor</label>
-                <select
-                  className="input"
-                  required
-                  value={newBlackout.instructorId}
-                  onChange={e => setNewBlackout(f => ({ ...f, instructorId: e.target.value }))}
-                >
-                  <option value="">Select instructor…</option>
-                  {MOCK_INSTRUCTORS.map(i => <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>)}
-                </select>
-              </div>
-            )}
-            <div>
               <label className="label">Reason</label>
               <input
                 className="input"
                 required
-                placeholder="e.g. Holiday, Personal appointment"
+                placeholder="e.g. 4th of July, Christmas"
                 value={newBlackout.reason}
                 onChange={e => setNewBlackout(f => ({ ...f, reason: e.target.value }))}
               />
+            </div>
+            <div>
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newBlackout.isRecurring}
+                  onChange={e => setNewBlackout(f => ({ ...f, isRecurring: e.target.checked }))}
+                  className="rounded"
+                />
+                <span className="text-sm text-[#212529]">Repeat every year</span>
+              </label>
+              {newBlackout.isRecurring && (
+                <p className="text-xs text-[#6c757d] mt-1.5 ml-6">
+                  Only the month and day are used — this blackout will apply on {newBlackout.date ? new Date(`2000-${newBlackout.date.slice(5)}T00:00:00`).toLocaleDateString("en-US", { month: "long", day: "numeric" }) : "the selected date"} every year.
+                </p>
+              )}
             </div>
           </form>
         </Modal>

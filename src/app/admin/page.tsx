@@ -1,19 +1,19 @@
 "use client";
-import { useState } from "react";
-import { MOCK_BOOKINGS } from "@/data/mock/bookings";
-import { MOCK_CUSTOMERS } from "@/data/mock/customers";
-import { MOCK_INSTRUCTORS } from "@/data/mock/instructors";
-import { INSTRUCTOR_AVAILABILITY } from "@/data/mock/schedule";
+import { useState, useMemo } from "react";
+import { useAppStore } from "@/data/store/useAppStore";
+import { db } from "@/data/service";
+import { notifyBoth } from "@/data/service/notifyUtils";
 import Modal from "@/components/Modal";
 import Toast from "@/components/Toast";
-import type { Booking } from "@/data/mock/bookings";
+import type { Booking } from "@/data/types";
 
 
 const TIME_SLOTS: string[] = [];
-for (let h = 9; h < 21; h++) {
+for (let h = 6; h < 24; h++) {
   TIME_SLOTS.push(`${String(h).padStart(2, "0")}:00`);
   TIME_SLOTS.push(`${String(h).padStart(2, "0")}:30`);
 }
+const GRID_START_MINS = 6 * 60; // 6:00 AM
 
 const INSTRUCTOR_COLORS: Record<string, string> = {
   i1:  "bg-blue-100 border-blue-300 text-blue-800",
@@ -60,11 +60,14 @@ function timeToMins(t: string) {
 }
 
 function timeToTop(t: string) {
-  return ((timeToMins(t) - 9 * 60) / 30) * SLOT_HEIGHT;
+  return ((timeToMins(t) - GRID_START_MINS) / 30) * SLOT_HEIGHT;
 }
 
 export default function AdminDashboard() {
-  const [bookings, setBookings] = useState(MOCK_BOOKINGS);
+  const storeBookings = useAppStore(s => s.bookings);
+  const storeInstructors = useAppStore(s => s.instructors);
+  const storeCustomers = useAppStore(s => s.customers);
+
   const [instructorFilter, setInstructorFilter] = useState("all");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [cancelScope, setCancelScope] = useState<"single" | "series" | "confirm-single" | "confirm-series">("single");
@@ -73,10 +76,35 @@ export default function AdminDashboard() {
   const [editForm, setEditForm] = useState({ date: "", time: "", instructorId: "", duration: "60" });
   const [rescheduleScope, setRescheduleScope] = useState<"single" | "series">("single");
 
-  const today = new Date().toISOString().slice(0, 10);
-  const activeInstructors = MOCK_INSTRUCTORS.filter(i => i.isActive);
-  const todayBookings = bookings.filter(b => b.date === today && b.status !== "cancelled");
-  const filteredTodayBookings = instructorFilter === "all" ? todayBookings : todayBookings.filter(b => b.instructorId === instructorFilter);
+  const storeAvailability = useAppStore(s => s.availability);
+  const storeBlackouts = useAppStore(s => s.blackouts);
+  const _now = new Date();
+  const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, "0")}-${String(_now.getDate()).padStart(2, "0")}`;
+  const activeInstructors = useMemo(() => storeInstructors.filter(i => i.isActive), [storeInstructors]);
+  const blackoutDates = useMemo(() => new Set(storeBlackouts.map(b => b.date)), [storeBlackouts]);
+
+  const rescheduleAvailDates = useMemo(() => {
+    if (!editBooking) return [];
+    return storeAvailability
+      .filter(a => a.instructorId === editForm.instructorId && a.date > today && a.slots.length > 0 && !blackoutDates.has(a.date))
+      .map(a => a.date)
+      .sort();
+  }, [storeAvailability, editForm.instructorId, editBooking, today]);
+
+  const rescheduleAvailSlots = useMemo(() => {
+    if (!editBooking) return [];
+    if (rescheduleScope === "series") {
+      const allSlots = new Set<string>();
+      storeAvailability
+        .filter(a => a.instructorId === editForm.instructorId)
+        .forEach(a => a.slots.forEach(s => allSlots.add(s)));
+      return [...allSlots].sort();
+    }
+    const av = storeAvailability.find(a => a.instructorId === editForm.instructorId && a.date === editForm.date);
+    return av?.slots ?? [];
+  }, [storeAvailability, editForm.instructorId, editForm.date, editBooking, rescheduleScope]);
+  const todayBookings = useMemo(() => storeBookings.filter(b => b.date === today && b.status !== "cancelled"), [storeBookings, today]);
+  const filteredTodayBookings = useMemo(() => instructorFilter === "all" ? todayBookings : todayBookings.filter(b => b.instructorId === instructorFilter), [todayBookings, instructorFilter]);
 
   function openEdit(b: Booking) {
     setEditBooking(b);
@@ -89,42 +117,35 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!editBooking) return;
     const dur = parseInt(editForm.duration) as 30 | 60;
-    const [h, m] = editForm.time.split(":").map(Number);
-    const endTotal = h * 60 + m + dur;
-    const endTime = `${String(Math.floor(endTotal / 60)).padStart(2, "0")}:${String(endTotal % 60).padStart(2, "0")}`;
     const instructor = activeInstructors.find(i => i.id === editForm.instructorId);
     const instructorName = instructor ? `${instructor.firstName} ${instructor.lastName}` : editBooking.instructorName;
 
     if (rescheduleScope === "series" && editBooking.recurringSeriesId) {
-      setBookings(prev => prev.map(b => {
-        if (b.recurringSeriesId !== editBooking.recurringSeriesId || b.date < today) return b;
-        const sessionEnd = h * 60 + m + dur;
-        return {
-          ...b,
-          startTime: editForm.time,
-          endTime: `${String(Math.floor(sessionEnd / 60)).padStart(2, "0")}:${String(sessionEnd % 60).padStart(2, "0")}`,
-          durationMinutes: dur,
-          instructorId: editForm.instructorId,
-          instructorName,
-        };
-      }));
+      const targets = storeBookings.filter(
+        b => b.recurringSeriesId === editBooking.recurringSeriesId && b.date >= today
+      );
+      targets.forEach(b => {
+        db.updateBooking(b.id, { startTime: editForm.time, durationMinutes: dur, instructorId: editForm.instructorId, instructorName });
+        const customer = db.getCustomers().find(c => c.id === b.customerId);
+        notifyBoth(db, {
+          bookingId: b.id, bookingReference: b.bookingReference,
+          recipientName: b.customerName, recipientEmail: customer?.email ?? "",
+          notificationType: "change", customerId: b.customerId,
+        });
+      });
       setToast({ message: "All upcoming sessions in this series have been updated.", type: "success" });
     } else {
-      setBookings(prev => prev.map(b => b.id !== editBooking.id ? b : {
-        ...b,
-        date: editForm.date,
-        startTime: editForm.time,
-        endTime,
-        durationMinutes: dur,
-        instructorId: editForm.instructorId,
-        instructorName,
-      }));
-      const av = INSTRUCTOR_AVAILABILITY.find(a => a.instructorId === editForm.instructorId && a.date === editForm.date);
-      const available = av?.slots.includes(editForm.time) ?? false;
-      setToast({
-        message: available ? "Booking rescheduled." : "Booking rescheduled. Note: instructor availability not confirmed for this slot.",
-        type: available ? "success" : "info",
+      db.updateBooking(editBooking.id, {
+        date: editForm.date, startTime: editForm.time, durationMinutes: dur,
+        instructorId: editForm.instructorId, instructorName,
       });
+      const customer = db.getCustomers().find(c => c.id === editBooking.customerId);
+      notifyBoth(db, {
+        bookingId: editBooking.id, bookingReference: editBooking.bookingReference,
+        recipientName: editBooking.customerName, recipientEmail: customer?.email ?? "",
+        notificationType: "change", customerId: editBooking.customerId,
+      });
+      setToast({ message: "Booking rescheduled.", type: "success" });
     }
     setEditBooking(null);
   }
@@ -132,15 +153,25 @@ export default function AdminDashboard() {
   function handleCancelBooking() {
     if (!selectedBooking) return;
     const cancelSeries = cancelScope === "series" || cancelScope === "confirm-series";
-    setBookings(prev => prev.map(b => {
-      if (cancelSeries && selectedBooking.recurringSeriesId && b.recurringSeriesId === selectedBooking.recurringSeriesId) {
-        return { ...b, status: "cancelled" as const, cancelledBy: "admin" as const };
-      }
-      if (b.id === selectedBooking.id) {
-        return { ...b, status: "cancelled" as const, cancelledBy: "admin" as const };
-      }
-      return b;
-    }));
+    if (cancelSeries && selectedBooking.recurringSeriesId) {
+      const cancelled = db.cancelSeries(selectedBooking.recurringSeriesId, today, "admin", "Cancelled by admin");
+      cancelled.forEach(b => {
+        const customer = db.getCustomers().find(c => c.id === b.customerId);
+        notifyBoth(db, {
+          bookingId: b.id, bookingReference: b.bookingReference,
+          recipientName: b.customerName, recipientEmail: customer?.email ?? "",
+          notificationType: "cancellation", customerId: b.customerId,
+        });
+      });
+    } else {
+      db.cancelBooking(selectedBooking.id, "admin", "Cancelled by admin");
+      const customer = db.getCustomers().find(c => c.id === selectedBooking.customerId);
+      notifyBoth(db, {
+        bookingId: selectedBooking.id, bookingReference: selectedBooking.bookingReference,
+        recipientName: selectedBooking.customerName, recipientEmail: customer?.email ?? "",
+        notificationType: "cancellation", customerId: selectedBooking.customerId,
+      });
+    }
     setToast({ message: cancelSeries ? "All series sessions cancelled." : "Booking cancelled.", type: "success" });
     setSelectedBooking(null);
     setCancelScope("single");
@@ -228,7 +259,7 @@ export default function AdminDashboard() {
     // ── Booking cards — same column logic as UI ────────────────────────────
     filteredTodayBookings.forEach(b => {
       const ci = colIdx.get(b.instructorId) ?? 0;
-      const slotIndex = (timeToMins(b.startTime) - 9 * 60) / 30;
+      const slotIndex = (timeToMins(b.startTime) - GRID_START_MINS) / 30;
       const cardY = gridY + slotIndex * slotH + 0.4;
       const cardH = (b.durationMinutes / 30) * slotH - 0.8;
       const cardX = contentX + ci * colW + 0.5;
@@ -284,8 +315,8 @@ export default function AdminDashboard() {
 
   const stats = [
     { label: "Bookings Today", value: todayBookings.length },
-    { label: "Active Customers", value: MOCK_CUSTOMERS.filter(c => c.isActive).length },
-    { label: "Active Instructors", value: MOCK_INSTRUCTORS.filter(i => i.isActive).length },
+    { label: "Active Customers", value: storeCustomers.filter(c => c.isActive).length },
+    { label: "Active Instructors", value: activeInstructors.length },
   ];
 
   return (
@@ -424,25 +455,58 @@ export default function AdminDashboard() {
                 ))}
               </div>
             )}
+            <div>
+              <label className="label">Instructor</label>
+              <select
+                className="input"
+                value={editForm.instructorId}
+                onChange={e => setEditForm(f => ({ ...f, instructorId: e.target.value, date: rescheduleScope === "series" ? f.date : "", time: "" }))}
+              >
+                {activeInstructors.map(i => <option key={i.id} value={i.id}>{i.firstName} {i.lastName}{i.speciality ? ` — ${i.speciality}` : ""}</option>)}
+              </select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">
-                  Date{rescheduleScope === "series" && <span className="text-[#6c757d] font-normal"> (this session only)</span>}
+                  Date{rescheduleScope === "series" && <span className="text-[#6c757d] font-normal"> (series keeps each session's date)</span>}
                 </label>
-                <input className="input" type="date" required value={editForm.date} disabled={rescheduleScope === "series"} onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))} />
+                {rescheduleScope === "series" ? (
+                  <input className="input" type="date" disabled value={editForm.date} />
+                ) : (
+                  <select
+                    className="input"
+                    required
+                    value={editForm.date}
+                    onChange={e => setEditForm(f => ({ ...f, date: e.target.value, time: "" }))}
+                  >
+                    <option value="">— Select a date —</option>
+                    {rescheduleAvailDates.map(d => (
+                      <option key={d} value={d}>{formatDate(d)}</option>
+                    ))}
+                    {rescheduleAvailDates.length === 0 && (
+                      <option disabled>No upcoming availability</option>
+                    )}
+                  </select>
+                )}
               </div>
               <div>
                 <label className="label">Time</label>
-                <select className="input" required value={editForm.time} onChange={e => setEditForm(f => ({ ...f, time: e.target.value }))}>
-                  {TIME_SLOTS.map(slot => <option key={slot} value={slot}>{formatTime(slot)}</option>)}
+                <select
+                  className="input"
+                  required
+                  value={editForm.time}
+                  onChange={e => setEditForm(f => ({ ...f, time: e.target.value }))}
+                  disabled={rescheduleScope === "single" && !editForm.date}
+                >
+                  <option value="">— Select a time —</option>
+                  {rescheduleAvailSlots.map(slot => (
+                    <option key={slot} value={slot}>{formatTime(slot)}</option>
+                  ))}
+                  {rescheduleAvailSlots.length === 0 && editForm.date && (
+                    <option disabled>No slots available for this date</option>
+                  )}
                 </select>
               </div>
-            </div>
-            <div>
-              <label className="label">Instructor</label>
-              <select className="input" value={editForm.instructorId} onChange={e => setEditForm(f => ({ ...f, instructorId: e.target.value }))}>
-                {activeInstructors.map(i => <option key={i.id} value={i.id}>{i.firstName} {i.lastName}</option>)}
-              </select>
             </div>
             <div>
               <label className="label">Duration</label>

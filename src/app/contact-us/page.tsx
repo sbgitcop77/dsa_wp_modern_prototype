@@ -1,14 +1,25 @@
-import type { Metadata } from "next";
+"use client";
+import { useState } from "react";
 import Image from "next/image";
 import Testimonials from "@/components/Testimonials";
+import { useAppStore } from "@/data/store/useAppStore";
 
-export const metadata: Metadata = {
-  title: "Contact Us",
-  description:
-    "Get in touch with The Diamond Sports Academy. Book a session, ask about memberships, or schedule a facility rental. Located in Odenton, MD.",
+const DAY_ABBR: Record<string, string> = {
+  Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed",
+  Thursday: "Thu", Friday: "Fri", Saturday: "Sat", Sunday: "Sun",
 };
 
+function fmtTime(t: string): string {
+  if (t === "24:00") return "12 AM";
+  const [h, m] = t.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return m === 0 ? `${hour} ${suffix}` : `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
 export default function ContactPage() {
+  const { phone, phoneHref, email, addressLine1, addressLine2 } = useAppStore(s => s.facilitySettings);
+  const operatingHours = useAppStore(s => s.operatingHours);
   return (
     <>
       {/* Page header */}
@@ -58,7 +69,7 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <p className="text-[#212529] font-semibold mb-1">Location</p>
-                    <p className="text-[#6c757d] text-sm">8274 Lokus Rd<br />Odenton, MD 21113</p>
+                    <p className="text-[#6c757d] text-sm">{addressLine1}<br />{addressLine2}</p>
                   </div>
                 </div>
 
@@ -71,8 +82,8 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <p className="text-[#212529] font-semibold mb-1">Phone (Call & Text)</p>
-                    <a href="tel:+14438651639" className="text-[#6c757d] hover:text-[#337C99] text-sm transition-colors">
-                      (443) 865-1639
+                    <a href={phoneHref} className="text-[#6c757d] hover:text-[#337C99] text-sm transition-colors">
+                      {phone}
                     </a>
                   </div>
                 </div>
@@ -86,8 +97,17 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <p className="text-[#212529] font-semibold mb-1">Training Hours</p>
-                    <p className="text-[#6c757d] text-sm">Mon–Fri: 8:00 AM – 8:00 PM</p>
-                    <p className="text-[#6c757d] text-sm">Saturday: 9:00 AM – 5:00 PM</p>
+                    {operatingHours.filter(oh => !oh.isClosed).reduce<{ label: string; value: string }[]>((rows, oh, _, arr) => {
+                      const prev = arr[arr.indexOf(oh) - 1];
+                      if (prev && prev.openTime === oh.openTime && prev.closeTime === oh.closeTime) {
+                        rows[rows.length - 1].label = `${rows[rows.length - 1].label.split("–")[0]}–${DAY_ABBR[oh.dayOfWeek]}`;
+                      } else {
+                        rows.push({ label: DAY_ABBR[oh.dayOfWeek], value: `${fmtTime(oh.openTime)} – ${fmtTime(oh.closeTime)}` });
+                      }
+                      return rows;
+                    }, []).map(row => (
+                      <p key={row.label} className="text-[#6c757d] text-sm">{row.label}: {row.value}</p>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -146,19 +166,39 @@ export default function ContactPage() {
 }
 
 function ContactForm() {
+  const [submitted, setSubmitted] = useState(false);
+  const [form, setForm] = useState({ name: "", phone: "", email: "", message: "" });
+
+  if (submitted) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center py-16 gap-4">
+        <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+          <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <h3 className="text-xl font-bold text-[#212529]">Message Sent!</h3>
+        <p className="text-[#6c757d] max-w-sm">Thank you for reaching out. A member of our team will review your message and get back to you shortly.</p>
+        <button
+          onClick={() => { setSubmitted(false); setForm({ name: "", phone: "", email: "", message: "" }); }}
+          className="mt-2 text-[#337C99] hover:underline text-sm"
+        >
+          Send another message
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <form
-      action="/api/contact"
-      method="POST"
-      className="space-y-5"
-    >
+    <form onSubmit={e => { e.preventDefault(); setSubmitted(true); }} className="space-y-5">
       <div className="grid sm:grid-cols-2 gap-5">
         <div>
           <label className="block text-sm font-medium text-[#212529] mb-2">Your Name *</label>
           <input
             type="text"
-            name="name"
             required
+            value={form.name}
+            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
             className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#212529] placeholder-[#adb5bd] focus:outline-none focus:border-[#337C99] transition-colors text-sm"
             placeholder="John Smith"
           />
@@ -167,7 +207,8 @@ function ContactForm() {
           <label className="block text-sm font-medium text-[#212529] mb-2">Phone</label>
           <input
             type="tel"
-            name="phone"
+            value={form.phone}
+            onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
             className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#212529] placeholder-[#adb5bd] focus:outline-none focus:border-[#337C99] transition-colors text-sm"
             placeholder="(443) 555-0100"
           />
@@ -177,8 +218,9 @@ function ContactForm() {
         <label className="block text-sm font-medium text-[#212529] mb-2">Email Address *</label>
         <input
           type="email"
-          name="email"
           required
+          value={form.email}
+          onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
           className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#212529] placeholder-[#adb5bd] focus:outline-none focus:border-[#337C99] transition-colors text-sm"
           placeholder="you@example.com"
         />
@@ -186,9 +228,10 @@ function ContactForm() {
       <div>
         <label className="block text-sm font-medium text-[#212529] mb-2">Message *</label>
         <textarea
-          name="message"
           required
           rows={5}
+          value={form.message}
+          onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
           className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-[#212529] placeholder-[#adb5bd] focus:outline-none focus:border-[#337C99] transition-colors text-sm resize-none"
           placeholder="Tell us about the athlete, their age, position, and what you're looking for..."
         />

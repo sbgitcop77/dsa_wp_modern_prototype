@@ -1,39 +1,25 @@
 "use client";
 import { useState } from "react";
-import { MOCK_BOOKINGS } from "@/data/mock/bookings";
-import { MOCK_INSTRUCTORS } from "@/data/mock/instructors";
+import { useAppStore } from "@/data/store/useAppStore";
 
 const TIME_SLOTS: string[] = [];
-for (let h = 9; h < 21; h++) {
+for (let h = 6; h < 24; h++) {
   TIME_SLOTS.push(`${String(h).padStart(2, "0")}:00`);
   TIME_SLOTS.push(`${String(h).padStart(2, "0")}:30`);
 }
 
-const INSTRUCTOR_COLORS: Record<string, string> = {
-  i1:  "bg-blue-100 border-blue-300 text-blue-800",
-  i2:  "bg-purple-100 border-purple-300 text-purple-800",
-  i3:  "bg-green-100 border-green-300 text-green-800",
-  i5:  "bg-rose-100 border-rose-300 text-rose-800",
-  i6:  "bg-orange-100 border-orange-300 text-orange-800",
-  i7:  "bg-cyan-100 border-cyan-300 text-cyan-800",
-  i8:  "bg-amber-100 border-amber-300 text-amber-800",
-  i9:  "bg-indigo-100 border-indigo-300 text-indigo-800",
-  i10: "bg-teal-100 border-teal-300 text-teal-800",
-  i11: "bg-pink-100 border-pink-300 text-pink-800",
-};
-
-const INSTRUCTOR_ACCENT: Record<string, string> = {
-  i1:  "#3b82f6",
-  i2:  "#a855f7",
-  i3:  "#22c55e",
-  i5:  "#f43f5e",
-  i6:  "#f97316",
-  i7:  "#06b6d4",
-  i8:  "#eab308",
-  i9:  "#6366f1",
-  i10: "#14b8a6",
-  i11: "#ec4899",
-};
+const COLOR_PALETTE = [
+  { bg: "bg-blue-100 border-blue-300 text-blue-800",   accent: "#3b82f6" },
+  { bg: "bg-purple-100 border-purple-300 text-purple-800", accent: "#a855f7" },
+  { bg: "bg-green-100 border-green-300 text-green-800",  accent: "#22c55e" },
+  { bg: "bg-rose-100 border-rose-300 text-rose-800",    accent: "#f43f5e" },
+  { bg: "bg-orange-100 border-orange-300 text-orange-800", accent: "#f97316" },
+  { bg: "bg-cyan-100 border-cyan-300 text-cyan-800",    accent: "#06b6d4" },
+  { bg: "bg-amber-100 border-amber-300 text-amber-800", accent: "#eab308" },
+  { bg: "bg-indigo-100 border-indigo-300 text-indigo-800", accent: "#6366f1" },
+  { bg: "bg-teal-100 border-teal-300 text-teal-800",   accent: "#14b8a6" },
+  { bg: "bg-pink-100 border-pink-300 text-pink-800",   accent: "#ec4899" },
+];
 
 const SLOT_HEIGHT = 56;
 
@@ -48,19 +34,29 @@ function timeToMins(t: string) {
 }
 
 function timeToTop(t: string) {
-  return ((timeToMins(t) - 9 * 60) / 30) * SLOT_HEIGHT;
+  return ((timeToMins(t) - 6 * 60) / 30) * SLOT_HEIGHT;
 }
 
 export default function SchedulePage() {
+  const { phone, phoneHref } = useAppStore(s => s.facilitySettings);
+  const storeBookings = useAppStore(s => s.bookings);
+  const storeInstructors = useAppStore(s => s.instructors);
   const [instructorFilter, setInstructorFilter] = useState("all");
 
-  const today = new Date().toISOString().slice(0, 10);
+  const _n = new Date();
+  const today = `${_n.getFullYear()}-${String(_n.getMonth() + 1).padStart(2, "0")}-${String(_n.getDate()).padStart(2, "0")}`;
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
   });
 
-  const activeInstructors = MOCK_INSTRUCTORS.filter(i => i.isActive);
-  const todayBookings = MOCK_BOOKINGS.filter(b => b.date === today && b.status !== "cancelled");
+  const activeInstructors = storeInstructors.filter(i => i.isActive);
+
+  // Assign a stable color per instructor based on their index in the active list
+  const instructorColorMap = new Map(
+    activeInstructors.map((inst, idx) => [inst.id, COLOR_PALETTE[idx % COLOR_PALETTE.length]])
+  );
+
+  const todayBookings = storeBookings.filter(b => b.date === today && b.status !== "cancelled");
   const filteredBookings = instructorFilter === "all"
     ? todayBookings
     : todayBookings.filter(b => b.instructorId === instructorFilter);
@@ -78,12 +74,10 @@ export default function SchedulePage() {
         className="relative pt-24 lg:pt-28 pb-12 overflow-hidden"
         style={{ backgroundColor: "#00141B" }}
       >
-        {/* Background image */}
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{ backgroundImage: "url('/images/the-diamond-sports-academy-facility.webp')" }}
         />
-        {/* Dark overlay */}
         <div className="absolute inset-0" style={{ backgroundColor: "rgba(0,20,27,0.78)" }} />
 
         <div className="relative max-w-[1320px] mx-auto px-4 sm:px-6">
@@ -122,18 +116,20 @@ export default function SchedulePage() {
             </select>
           </div>
 
-          {/* Color legend — only active instructors who have bookings today */}
           {instrList.length > 0 && (
             <div className="flex items-center gap-3 flex-wrap ml-2 border-l border-gray-100 pl-4">
-              {instrList.map(([id, name]) => (
-                <span key={id} className="flex items-center gap-1.5 text-xs text-[#6c757d]">
-                  <span
-                    className={`w-5 h-3.5 rounded-sm border flex-shrink-0 ${INSTRUCTOR_COLORS[id] ?? "bg-gray-100 border-gray-300"}`}
-                    style={{ borderLeftColor: INSTRUCTOR_ACCENT[id] ?? "#9ca3af", borderLeftWidth: 3 }}
-                  />
-                  {name}
-                </span>
-              ))}
+              {instrList.map(([id, name]) => {
+                const color = instructorColorMap.get(id);
+                return (
+                  <span key={id} className="flex items-center gap-1.5 text-xs text-[#6c757d]">
+                    <span
+                      className={`w-5 h-3.5 rounded-sm border flex-shrink-0 ${color?.bg ?? "bg-gray-100 border-gray-300"}`}
+                      style={{ borderLeftColor: color?.accent ?? "#9ca3af", borderLeftWidth: 3 }}
+                    />
+                    {name}
+                  </span>
+                );
+              })}
             </div>
           )}
         </div>
@@ -168,7 +164,6 @@ export default function SchedulePage() {
                 className="relative flex-1"
                 style={{ minWidth: numCols * 140, height: TIME_SLOTS.length * SLOT_HEIGHT }}
               >
-                {/* Horizontal grid lines */}
                 {TIME_SLOTS.map((slot, i) => (
                   <div
                     key={slot}
@@ -177,19 +172,19 @@ export default function SchedulePage() {
                   />
                 ))}
 
-                {/* Read-only booking cards */}
                 {filteredBookings.map(b => {
                   const ci = colIdx.get(b.instructorId) ?? 0;
+                  const color = instructorColorMap.get(b.instructorId);
                   return (
                     <div
                       key={b.id}
-                      className={`absolute rounded border text-xs overflow-hidden px-2 py-1 select-none ${INSTRUCTOR_COLORS[b.instructorId] ?? "bg-gray-100 border-gray-300 text-gray-700"}`}
+                      className={`absolute rounded border text-xs overflow-hidden px-2 py-1 select-none ${color?.bg ?? "bg-gray-100 border-gray-300 text-gray-700"}`}
                       style={{
                         top: timeToTop(b.startTime) + 2,
                         height: (b.durationMinutes / 30) * SLOT_HEIGHT - 4,
                         left: `calc(${(ci / numCols) * 100}% + 4px)`,
                         width: `calc(${(1 / numCols) * 100}% - 8px)`,
-                        borderLeftColor: INSTRUCTOR_ACCENT[b.instructorId] ?? "#9ca3af",
+                        borderLeftColor: color?.accent ?? "#9ca3af",
                         borderLeftWidth: 4,
                         cursor: "default",
                       }}
@@ -211,11 +206,10 @@ export default function SchedulePage() {
           )}
         </div>
 
-        {/* Footer note */}
         <p className="text-center text-xs text-[#6c757d] mt-6">
           Schedule is updated by the facility. For questions call{" "}
-          <a href="tel:+14438651639" className="hover:underline" style={{ color: "#337C99" }}>
-            (443) 865-1639
+          <a href={phoneHref} className="hover:underline" style={{ color: "#337C99" }}>
+            {phone}
           </a>
         </p>
       </div>

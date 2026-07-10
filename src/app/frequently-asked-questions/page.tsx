@@ -1,3 +1,4 @@
+import { SITE_PHONE, SITE_PHONE_HREF } from "@/data/siteConfig";
 import type { Metadata } from "next";
 import CtaBanner from "@/components/CtaBanner";
 
@@ -82,13 +83,13 @@ export default function FaqPage() {
             <p className="text-[#6c757d] mb-6">We&apos;re happy to help — reach out by call or text.</p>
             <div className="flex flex-wrap justify-center gap-4">
               <a
-                href="tel:+14438651639"
+                href={SITE_PHONE_HREF}
                 className="inline-block bg-[#337C99] hover:bg-[#265d73] text-white font-semibold px-7 py-3.5 rounded transition-colors"
               >
                 Call Us!
               </a>
               <a
-                href="sms:+14438651639"
+                href={SITE_PHONE_HREF.replace("tel:", "sms:")}
                 className="inline-block border-2 border-[#337C99] text-[#337C99] hover:bg-[#337C99] hover:text-white font-semibold px-7 py-3.5 rounded transition-colors"
               >
                 Text Us!

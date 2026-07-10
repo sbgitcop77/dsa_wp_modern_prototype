@@ -1,3 +1,4 @@
+import { SITE_PHONE, SITE_PHONE_HREF, SITE_ADDRESS } from "@/data/siteConfig";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
@@ -105,8 +106,8 @@ export default function JacobDelgadoPage() {
                 </p>
                 <div className="space-y-3 text-sm text-[#6c757d] mb-6">
                   <p><span className="font-semibold text-[#212529]">Academy:</span> The Diamond Sports Academy</p>
-                  <p><span className="font-semibold text-[#212529]">Location:</span> 8274 Lokus Rd, Odenton, MD 21113</p>
-                  <p><span className="font-semibold text-[#212529]">Phone:</span> <a href="tel:+14438651639" className="text-[#337C99] hover:underline">(443) 865-1639</a></p>
+                  <p><span className="font-semibold text-[#212529]">Location:</span> {SITE_ADDRESS}</p>
+                  <p><span className="font-semibold text-[#212529]">Phone:</span> <a href={SITE_PHONE_HREF} className="text-[#337C99] hover:underline">{SITE_PHONE}</a></p>
                 </div>
                 <Link
                   href="/contact-us"

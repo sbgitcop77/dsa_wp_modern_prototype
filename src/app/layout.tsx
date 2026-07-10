@@ -3,6 +3,7 @@ import { Inter, Figtree } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import StoreHydration from "@/components/StoreHydration";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -53,6 +54,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${figtree.variable}`}>
       <body className="bg-[#0a0a0a] text-white font-sans antialiased">
+        <StoreHydration />
         <Header />
         <main>{children}</main>
         <Footer />

@@ -17,14 +17,16 @@ const STATUS_COLORS: Record<string, string> = {
   no_show: "bg-yellow-100 text-yellow-800",
 };
 
-type Range = "all" | "may2026";
-
 export default function ReportsPage() {
-  const [range, setRange] = useState<Range>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const isAllTime = !dateFrom && !dateTo;
 
-  const scoped = range === "all"
-    ? MOCK_BOOKINGS
-    : MOCK_BOOKINGS.filter(b => b.date.startsWith("2026-05"));
+  const scoped = MOCK_BOOKINGS.filter(b => {
+    if (dateFrom && b.date < dateFrom) return false;
+    if (dateTo && b.date > dateTo) return false;
+    return true;
+  });
 
   const total = scoped.length;
   const byStatus = Object.fromEntries(
@@ -60,16 +62,21 @@ export default function ReportsPage() {
 
   return (
     <div className="p-6 lg:p-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-[#212529]">Reports & Analytics</h1>
-        <select
-          className="input w-44 text-sm py-1.5"
-          value={range}
-          onChange={e => setRange(e.target.value as Range)}
-        >
-          <option value="all">All Time</option>
-          <option value="may2026">May 2026</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setDateFrom(""); setDateTo(""); }}
+            className={isAllTime ? "btn-primary text-sm py-1.5" : "btn-secondary text-sm py-1.5"}
+          >
+            All Time
+          </button>
+          <div className="flex items-center gap-1.5">
+            <input type="date" className="input text-sm py-1.5 w-36" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="From date" />
+            <span className="text-[#6c757d] text-xs">to</span>
+            <input type="date" className="input text-sm py-1.5 w-36" value={dateTo} onChange={e => setDateTo(e.target.value)} title="To date" />
+          </div>
+        </div>
       </div>
 
       {/* Key metrics */}

@@ -630,8 +630,8 @@ function BookingDetails({
       <DetailRow label="Duration" value={`${booking.durationMinutes} min`} />
       {booking.isForChild && (
         <>
-          {booking.childName && <DetailRow label="Child's name" value={booking.childName} />}
-          <DetailRow label="Child's age" value={`${booking.childAge} yrs`} />
+          {booking.childName && <DetailRow label="Athlete's name" value={booking.childName} />}
+          <DetailRow label="Athlete's age" value={`${booking.childAge} yrs`} />
           {booking.relationshipToCustomer && <DetailRow label="Relationship" value={booking.relationshipToCustomer} />}
         </>
       )}

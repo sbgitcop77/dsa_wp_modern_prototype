@@ -29,9 +29,7 @@ function StatusBadge({ status, conflictReason }: { status: Booking["status"]; co
     <span className="inline-flex flex-col gap-0.5">
       <span className={map[status] ?? "badge-gray"}>{status.replace("_", " ")}</span>
       {status === "waitlisted" && conflictReason && (
-        <span className="text-[10px] text-amber-700">
-          {conflictReason === "instructor_conflict" ? "Instructor conflict" : "Lane at capacity"}
-        </span>
+        <span className="text-[10px] text-amber-700">Instructor conflict</span>
       )}
     </span>
   );
@@ -196,7 +194,7 @@ export default function BookingsPage() {
   }
 
   function exportCSV() {
-    const headers = ["Reference", "Customer", "Instructor", "Date", "Time", "Duration (min)", "Type", "Booked By", "Relationship", "Child's Age", "Status"];
+    const headers = ["Reference", "Customer", "Instructor", "Date", "Time", "Duration (min)", "Type", "Booked By", "Relationship", "Athlete's Age", "Status"];
     const rows = filtered.map(b => [
       b.bookingReference,
       b.customerName,
@@ -282,7 +280,7 @@ export default function BookingsPage() {
                 <div>Time /</div>
                 <div className="font-normal normal-case tracking-normal text-[#6c757d]/70">Duration</div>
               </th>
-              {["Type","Child","Status"].map(h => (
+              {["Type","Status"].map(h => (
                 <th key={h} className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide whitespace-nowrap">{h}</th>
               ))}
               <th className="text-left px-4 py-3 text-xs font-medium text-[#6c757d] uppercase tracking-wide">
@@ -297,7 +295,9 @@ export default function BookingsPage() {
             ) : filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map(b => (
               <tr key={b.id} onClick={() => { setSelected(b); setCancelScope("single"); setCancelNote(""); }} className="hover:bg-gray-50 cursor-pointer">
                 <td className="px-4 py-3 font-mono text-xs text-[#337C99]">{b.bookingReference}</td>
-                <td className="px-4 py-3 font-medium text-[#212529]">{b.customerName}</td>
+                <td className="px-4 py-3 font-medium text-[#212529]">
+                  {b.isForChild && b.childName ? b.childName : b.customerName}
+                </td>
                 <td className="px-4 py-3 text-[#6c757d]">{b.instructorName}</td>
                 <td className="px-4 py-3 text-[#6c757d] whitespace-nowrap">{formatDate(b.date)}</td>
                 <td className="px-4 py-3 text-[#6c757d]">
@@ -311,15 +311,7 @@ export default function BookingsPage() {
                       : <span className="badge-orange" style={{ color: "#131313" }}>Single-session</span>}
                     {b.isForChild && <span className="text-[#6c757d] text-xs">/</span>}
                   </div>
-                  {b.isForChild && <span className="badge-purple mt-0.5">Child</span>}
-                </td>
-                <td className="px-4 py-3 text-[#6c757d]">
-                  {b.isForChild ? (
-                    <>
-                      {b.childName && <div className="text-[#212529] font-medium text-sm">{b.childName}</div>}
-                      {b.childAge && <div className="text-xs">Age {b.childAge}</div>}
-                    </>
-                  ) : <span>—</span>}
+                  {b.isForChild && <span className="badge-purple mt-0.5">Athlete</span>}
                 </td>
                 <td className="px-4 py-3"><StatusBadge status={b.status} conflictReason={b.conflictReason} /></td>
                 <td className="px-4 py-3 text-[#6c757d]">
@@ -392,8 +384,8 @@ export default function BookingsPage() {
             {selected.laneAssigned && <Row label="Lane" value={`Lane ${selected.laneAssigned}`} />}
             {selected.isForChild && (
               <>
-                {selected.childName && <Row label="Child's Name" value={selected.childName} />}
-                <Row label="Child's Age" value={`${selected.childAge} yrs`} />
+                {selected.childName && <Row label="Athlete's Name" value={selected.childName} />}
+                <Row label="Athlete's Age" value={`${selected.childAge} yrs`} />
                 <Row label="Booked By" value={selected.bookedByName ?? selected.customerName} />
                 <Row label="Relationship" value={selected.relationshipToCustomer ?? ""} />
               </>
@@ -402,7 +394,7 @@ export default function BookingsPage() {
               {selected.isRecurring
                 ? <span className="badge-blue">Recurring</span>
                 : <span className="badge-orange" style={{ color: "#131313" }}>Single-session</span>}
-              {selected.isForChild && <span className="badge-purple">Child</span>}
+              {selected.isForChild && <span className="badge-purple">Athlete</span>}
             </div>
             {selected.isRecurring && selected.status === "confirmed" && cancelScope.startsWith("confirm") && (
               <div className="pt-2 border-t border-gray-100 space-y-2">

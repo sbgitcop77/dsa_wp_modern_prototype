@@ -69,7 +69,7 @@ export type Booking = {
   isWalkIn: boolean;
   cancelledBy?: "customer" | "admin";
   cancellationReason?: string;
-  conflictReason?: "instructor_conflict" | "lane_at_capacity";
+  conflictReason?: "instructor_conflict";
   laneAssigned?: number;      // 1–4; undefined for Non-Lane Instructors
   createdAt: string;
 };
@@ -142,6 +142,8 @@ export type FacilitySettings = {
   website: string;
   timezone: string;
   activeLanes: number;
+  adminUsername: string;
+  adminPassword: string;
 };
 
 // ── Filter types ──────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ type Step = 1 | 2 | 3 | 4 | 5;
 type WeeklyStatus = {
   date: string;
   status: "confirmed" | "waitlisted" | "hard_block";
-  reason?: "blackout" | "no_availability" | "slot_window" | "instructor_conflict" | "lane_at_capacity";
+  reason?: "blackout" | "no_availability" | "slot_window" | "instructor_conflict";
 };
 
 type BookingForm = {
@@ -772,7 +772,7 @@ function BookPageInner() {
               <div className="grid grid-cols-2 gap-3 mb-6">
                 {([
                   { value: "self", title: "Myself", sub: "I am the participant" },
-                  { value: "child", title: "A Child", sub: "I am booking on their behalf" },
+                  { value: "child", title: "Another Athlete", sub: "I am booking on their behalf" },
                 ] as const).map(opt => (
                   <button
                     key={opt.value}
@@ -816,27 +816,27 @@ function BookPageInner() {
                 </div>
               )}
 
-              {/* Child form */}
+              {/* Athlete form */}
               {form.sessionFor === "child" && (
                 <div className="space-y-6">
-                  {/* Child Details */}
+                  {/* Athlete Details */}
                   <div>
-                    <h3 className="text-sm font-semibold text-[#212529] pb-2 mb-3 border-b border-gray-200">Child Details</h3>
+                    <h3 className="text-sm font-semibold text-[#212529] pb-2 mb-3 border-b border-gray-200">Athlete Details</h3>
                     <div className="space-y-4">
                       <div className="grid sm:grid-cols-2 gap-4">
                         <div>
                           <label className="label">First Name</label>
-                          <input className="input" required value={form.childFirstName} onChange={e => set("childFirstName", e.target.value)} placeholder="Child's first name" />
+                          <input className="input" required value={form.childFirstName} onChange={e => set("childFirstName", e.target.value)} placeholder="Athlete's first name" />
                         </div>
                         <div>
                           <label className="label">Last Name</label>
-                          <input className="input" required value={form.childLastName} onChange={e => set("childLastName", e.target.value)} placeholder="Child's last name" />
+                          <input className="input" required value={form.childLastName} onChange={e => set("childLastName", e.target.value)} placeholder="Athlete's last name" />
                         </div>
                       </div>
                       <div className="grid sm:grid-cols-2 gap-4">
                         <div>
                           <label className="label">Age</label>
-                          <input className="input" type="number" min="5" max="18" required value={form.childAge} onChange={e => set("childAge", e.target.value)} placeholder="Age" />
+                          <input className="input" type="number" min="1" max="99" required value={form.childAge} onChange={e => set("childAge", e.target.value)} placeholder="Age" />
                         </div>
                         <div>
                           <label className="label">Your Relationship</label>

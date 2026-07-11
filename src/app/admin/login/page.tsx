@@ -1,29 +1,35 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useAppStore } from "@/data/store/useAppStore";
 import Toast from "@/components/Toast";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const settings = useAppStore(s => s.facilitySettings);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+
+    if (username !== settings.adminUsername || password !== settings.adminPassword) {
+      setToast({ message: "Invalid username or password.", type: "error" });
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch("/api/admin/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "login", username, password }),
+        body: JSON.stringify({ action: "login" }),
       });
       if (res.ok) {
-        setToast({ message: "Welcome back, Alexis!", type: "success" });
-        setTimeout(() => router.push("/admin"), 800);
+        window.location.href = "/admin";
       } else {
-        setToast({ message: "Invalid username or password.", type: "error" });
+        setToast({ message: "Something went wrong. Please try again.", type: "error" });
         setLoading(false);
       }
     } catch {

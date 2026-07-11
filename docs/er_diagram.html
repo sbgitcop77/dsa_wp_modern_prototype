@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSA Data Model — ER Diagram</title>
+<style>
+  :root {
+    --bg:           #0D1E30;
+    --bg2:          #111F31;
+    --surface:      #152435;
+    --surface-h:    #1A2E42;
+    --border:       #243D55;
+    --border-h:     #337C99;
+    --text:         #C4D8EE;
+    --text2:        #6A90AE;
+    --accent:       #337C99;
+    --accent-hi:    #4DAAC8;
+    --type:         #C97D28;
+    --pk:           #E8BE50;
+    --fk:           #74B85A;
+    --optional:     #7A7A9A;
+    --hdr:          #193148;
+    --tt-bg:        #0A1828;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #E8F0F8; --bg2: #DCE8F4; --surface: #FFFFFF; --surface-h: #EDF4FC;
+      --border: #B8CEE4; --border-h: #2268A0; --text: #1A3050; --text2: #5A7898;
+      --accent: #2268A0; --accent-hi: #1A5A9A; --type: #9A5C10;
+      --pk: #7A5500; --fk: #3A5C18; --optional: #606088;
+      --hdr: #D0E4F4; --tt-bg: #FFFFFF;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    height: 100vh; overflow: hidden;
+  }
+
+  /* ── Top bar ── */
+  #bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+    height: 44px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 18px;
+  }
+  #bar-title {
+    font-size: 12px; font-weight: 800; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--accent-hi);
+  }
+  #bar-sub { font-size: 11px; color: var(--text2); }
+  #bar-controls { margin-left: auto; display: flex; gap: 6px; }
+  .btn {
+    background: var(--surface-h); border: 1px solid var(--border);
+    color: var(--text2); font-size: 11px; padding: 4px 11px;
+    border-radius: 4px; cursor: pointer; font-family: inherit;
+    transition: border-color .12s, color .12s;
+  }
+  .btn:hover { border-color: var(--accent-hi); color: var(--accent-hi); }
+
+  /* ── Canvas ── */
+  #viewport {
+    position: fixed; top: 44px; left: 0; right: 0; bottom: 0;
+    overflow: hidden; cursor: default;
+  }
+  #viewport.panning { cursor: grabbing; }
+  #world {
+    position: absolute; top: 0; left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+
+  /* ── SVG lines layer ── */
+  #lines {
+    position: absolute; top: 0; left: 0;
+    pointer-events: none; overflow: visible;
+  }
+
+  /* ── Entity cards ── */
+  .card {
+    position: absolute;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 9px;
+    width: 252px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.38);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .card.active {
+    border-color: var(--border-h);
+    box-shadow: 0 8px 32px rgba(51,124,153,.28);
+    z-index: 100 !important;
+  }
+  .card-hdr {
+    background: var(--hdr);
+    padding: 8px 12px 7px;
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    cursor: grab;
+    user-select: none;
+  }
+  .card-hdr:active { cursor: grabbing; }
+  .card-name {
+    font-size: 12px; font-weight: 700;
+    color: var(--accent-hi); letter-spacing: .02em;
+  }
+  .card-badge {
+    margin-left: auto;
+    font-size: 9.5px; color: var(--text2);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 3px; padding: 1px 6px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .card-body { padding: 5px 0 4px; }
+  .row {
+    display: flex; align-items: center;
+    padding: 2px 10px 2px 8px;
+    transition: background .08s;
+    cursor: default;
+  }
+  .row:hover { background: var(--surface-h); }
+  .row-badge {
+    width: 20px; flex-shrink: 0;
+    font-size: 8px; font-weight: 800; letter-spacing: .04em;
+    color: transparent;
+  }
+  .row-badge.pk { color: var(--pk); }
+  .row-badge.fk { color: var(--fk); }
+  .row-name {
+    font-family: ui-monospace, SFMono-Regular, "Cascadia Code", monospace;
+    font-size: 10.5px; color: var(--text);
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .row-name.opt { color: var(--optional); }
+  .row-type {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 9.5px; color: var(--type);
+    margin-left: 6px; flex-shrink: 0;
+    max-width: 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sep { height: 1px; background: var(--border); margin: 3px 10px; }
+
+  /* ── Tooltip ── */
+  #tip {
+    position: fixed; z-index: 999;
+    background: var(--tt-bg); border: 1.5px solid var(--accent);
+    border-radius: 8px; padding: 10px 14px; max-width: 296px;
+    pointer-events: none;
+    opacity: 0; transform: translateY(5px);
+    transition: opacity .14s, transform .14s;
+    box-shadow: 0 10px 36px rgba(0,0,0,.55);
+  }
+  #tip.show { opacity: 1; transform: translateY(0); }
+  #tip-field { font-family: ui-monospace, monospace; font-size: 11px; font-weight: 700; color: var(--accent-hi); margin-bottom: 2px; }
+  #tip-type  { font-family: ui-monospace, monospace; font-size: 10px; color: var(--type); margin-bottom: 7px; }
+  #tip-desc  { font-size: 11.5px; color: var(--text); line-height: 1.55; }
+  #tip-rule  { font-size: 10.5px; color: var(--text2); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); line-height: 1.5; display: none; }
+
+  /* ── Legend ── */
+  #legend {
+    position: fixed; bottom: 16px; left: 16px; z-index: 200;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 7px; padding: 10px 14px;
+  }
+  .leg-title { font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--text2); margin-bottom: 6px; }
+  .leg-row { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text); margin-bottom: 3px; }
+  .leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .leg-line { width: 22px; height: 0; border-top: 2px solid var(--accent); flex-shrink: 0; border-radius: 1px; }
+  .leg-dash { width: 22px; height: 0; border-top: 2px dashed var(--border-h); flex-shrink: 0; }
+
+  /* ── Hint ── */
+  #hint {
+    position: fixed; bottom: 16px; right: 16px; z-index: 200;
+    font-size: 11px; color: var(--text2); text-align: right; line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <span id="bar-title">DSA · Data Model</span>
+  <span id="bar-sub">9 entities · hover any field for docs · drag cards to rearrange · scroll to zoom</span>
+  <div id="bar-controls">
+    <button class="btn" id="btn-fit">Fit All</button>
+    <button class="btn" id="btn-reset">Reset</button>
+  </div>
+</div>
+
+<div id="viewport">
+  <div id="world">
+    <svg id="lines" width="3200" height="2400"></svg>
+  </div>
+</div>
+
+<div id="legend">
+  <div class="leg-title">Legend</div>
+  <div class="leg-row"><div class="leg-dot" style="background:var(--pk)"></div>Primary Key</div>
+  <div class="leg-row"><div class="leg-dot" style="background:var(--fk)"></div>Foreign Key</div>
+  <div class="leg-row"><div class="leg-dot" style="background:var(--optional)"></div>Optional field</div>
+  <div class="leg-row"><div class="leg-line"></div>Required ref</div>
+  <div class="leg-row"><div class="leg-dash"></div>Optional ref</div>
+</div>
+
+<div id="hint">Drag cards · Scroll to zoom · Drag canvas to pan</div>
+
+<div id="tip">
+  <div id="tip-field"></div>
+  <div id="tip-type"></div>
+  <div id="tip-desc"></div>
+  <div id="tip-rule"></div>
+</div>
+
+<script>
+// ── Entity definitions ────────────────────────────────────────────────────────
+const ENTITIES = [
+  {
+    id: "Customer", label: "Customer", count: "150 seeded",
+    x: 40, y: 60,
+    fields: [
+      { name:"id",                   type:"string",         badge:"PK", desc:"Unique customer ID. Format: c{N}, e.g. c42.", rule:"Auto-generated by MockDataService on create." },
+      { name:"firstName",            type:"string",                     desc:"Customer's given name." },
+      { name:"lastName",             type:"string",                     desc:"Customer's family name." },
+      { name:"email",                type:"string",                     desc:"Unique. Always compared case-insensitively for deduplication.", rule:"test@EMAIL.com and test@email.com are the same customer. Stored lowercase." },
+      { name:"phone",                type:"string",                     desc:'Display format: "(443) 555-XXXX".' },
+      { name:"isActive",             type:"boolean",                    desc:"False when deactivated by admin. All future confirmed and waitlisted bookings are auto-cancelled on deactivation.", rule:"Once set to false, can be reactivated but cancelled bookings are not restored." },
+      { name:"isFlagged",            type:"boolean",                    desc:"Set manually by admin (Flag/Unflag) or auto-set when noShowCount >= 2 OR lateCancellationCount >= 3 via the increment handlers.", rule:"Auto-flag fires in the admin customers page handlers, not in MockDataService. Blocks customer from advancing past Step 4 of the public booking wizard." },
+      { name:"noShowCount",          type:"number",                     desc:"Times this customer had a no-show. Incremented by admin via the + No-Show button. Auto-flags at 2." },
+      { name:"lateCancellationCount",type:"number",                     desc:"Times cancelled within 24 hours of session start. Incremented by admin via the + Late Cancellation button. Auto-flags at 3." },
+      { name:"smsOptOut",            type:"boolean",                    desc:"When true, reminder_2hr_sms notifications are suppressed." },
+      { name:"source",               type:'"online"|"admin"|"import"',  desc:"How the customer record was created. Cosmetic — does not restrict any operations." },
+      { name:"createdAt",            type:"string (ISO 8601)",          desc:"UTC timestamp of account creation." },
+      { name:"deactivatedAt?",       type:"string (ISO 8601)",          desc:"Set when isActive → false. Never cleared once set.", opt:true },
+    ]
+  },
+  {
+    id: "Instructor", label: "Instructor", count: "11 seeded",
+    x: 360, y: 60,
+    fields: [
+      { name:"id",                     type:"string",            badge:"PK", desc:"Format: i{N}, e.g. i7. Instructor i4 (Jordan Smith) is inactive in seed data." },
+      { name:"firstName",              type:"string",                        desc:"Instructor's given name." },
+      { name:"lastName",               type:"string",                        desc:"Instructor's family name." },
+      { name:"email",                  type:"string",                        desc:"Work email, e.g. marcus@diamondsports.com." },
+      { name:"phone",                  type:"string",                        desc:"Work phone number." },
+      { name:"speciality",             type:"string",                        desc:'Display label for specialty, e.g. "Hitting & Pitching".' },
+      { name:"type",                   type:"string",                        desc:'Admin-visible label, e.g. "Lane Instructor" or "Weight Room". Drives filter pills on the Instructors page.' },
+      { name:"instructor_type",        type:"string",                        desc:'Internal routing type. Currently "lane" for all instructors. Reserved for future non-lane types.', rule:"Separate from type. type is for display; instructor_type is for booking routing logic." },
+      { name:"isActive",               type:"boolean",                       desc:"Inactive instructors are hidden from the public booking wizard." },
+      { name:"totalSessionsDelivered", type:"number",                        desc:"Static display counter. Not recalculated dynamically from bookings." },
+      { name:"upcomingSessions",       type:"number",                        desc:"Static display counter. Not recalculated dynamically." },
+      { name:"createdAt",              type:"string (ISO 8601)",             desc:"UTC timestamp." },
+      { name:"deactivatedAt?",         type:"string (ISO 8601)",             desc:"Set when instructor is deactivated.", opt:true },
+      { name:"availability",           type:"InstructorSchedule",            desc:"Weekly recurring template + per-date overrides. Drives the Instructor Management UI.", rule:"Does NOT feed the booking wizard. The wizard uses InstructorAvailability records generated from INSTRUCTOR_PATTERNS in schedule.ts." },
+    ]
+  },
+  {
+    id: "OperatingHours", label: "OperatingHours", count: "7 seeded",
+    x: 690, y: 60,
+    fields: [
+      { name:"id",        type:"string",        badge:"PK", desc:"Format: oh1–oh7, one per day of week." },
+      { name:"dayOfWeek", type:"string",                    desc:'"Monday" through "Sunday".' },
+      { name:"openTime",  type:"string (HH:MM)",            desc:'Facility open time. Currently "06:00" for all days.' },
+      { name:"closeTime", type:"string (HH:MM)",            desc:'Facility close time. Currently "24:00" (midnight) for all days.' },
+      { name:"isClosed",  type:"boolean",                   desc:"When true, facility is entirely closed. Currently false for all days.", rule:"Editable via Admin Settings page." },
+    ]
+  },
+  {
+    id: "Booking", label: "Booking", count: "~3,000 seeded",
+    x: 200, y: 400,
+    fields: [
+      { name:"id",                   type:"string",                    badge:"PK", desc:"Format: b{N}." },
+      { name:"bookingReference",     type:"string",                               desc:'Human-readable ID shown to customers and used in the /manage/[ref] URL. Format: "DSA-YYYYMMDD-NNNN", e.g. "DSA-20260711-4823".', rule:"Used for both display and manage URL routing. cancellationToken field exists in the type but is not used in the current prototype." },
+      { name:"cancellationToken",    type:"string",                               desc:'Legacy field — present in the type but not used for URL routing. The manage page uses bookingReference for lookup.', rule:"Retained in type to avoid breaking seed data." },
+      { name:"customerId",           type:"string",                    badge:"FK", desc:"References Customer.id." },
+      { name:"customerName",         type:"string",                               desc:"Denormalized from Customer at booking time. Not updated if customer name changes later.", rule:"Source: Customer.firstName + lastName at time of booking." },
+      { name:"instructorId",         type:"string",                    badge:"FK", desc:"References Instructor.id." },
+      { name:"instructorName",       type:"string",                               desc:"Denormalized from Instructor at booking time." },
+      { name:"date",                 type:"string (YYYY-MM-DD)",                  desc:"Session date." },
+      { name:"startTime",            type:"string (HH:MM)",                       desc:"Session start. Always 30-minute aligned (e.g. 09:00, 09:30)." },
+      { name:"endTime",              type:"string (HH:MM)",                       desc:"Computed: startTime + durationMinutes. Set by MockDataService on create." },
+      { name:"durationMinutes",      type:"30 | 60",                              desc:"Session length. Only 30 or 60 minutes are supported." },
+      { name:"status",               type:'"confirmed"|"cancelled"|...',          desc:"Current booking state: confirmed, cancelled, no_show, completed, or waitlisted.", rule:"waitlisted = instructor was already booked at this slot. See conflictReason." },
+      { name:"isForChild",           type:"boolean",                              desc:"True when the person being trained is not the account holder.", rule:"Admin Customer column shows childName (participant) not customerName (booker) when true." },
+      { name:"childName?",           type:"string",                               desc:"Participant's name when isForChild = true. Internal field name retained; participant need not be a minor.", opt:true },
+      { name:"childAge?",            type:"number",                               desc:"Participant's age (1–99) when isForChild = true.", opt:true },
+      { name:"relationshipToCustomer?", type:"string",                            desc:'Booker\'s relationship to participant, e.g. "Parent", "Guardian", "Coach".', opt:true },
+      { name:"bookedByName?",        type:"string",                               desc:"The account holder's name when booking for another athlete.", opt:true },
+      { name:"isRecurring",          type:"boolean",                              desc:"True when part of a multi-week recurring series." },
+      { name:"recurringSeriesId?",   type:"string",                               desc:'Groups all siblings in a recurring series, e.g. "series-14".', rule:"Cancelling a series finds all bookings with this seriesId where status !== cancelled and date >= today, then cancels them all.", opt:true },
+      { name:"isWalkIn",             type:"boolean",                              desc:"Legacy field — walk-in concept removed. Always false on new bookings. Retained in type to avoid breaking existing seed data." },
+      { name:"cancelledBy?",         type:'"customer" | "admin"',                 desc:"Who initiated the cancellation.", opt:true },
+      { name:"cancellationReason?",  type:"string",                               desc:"Free-text reason at cancellation time.", opt:true },
+      { name:"conflictReason?",      type:'"instructor_conflict"',                desc:"Why the booking is waitlisted. Always instructor_conflict — set when the chosen instructor already has a confirmed booking at this time slot.", opt:true },
+      { name:"laneAssigned?",        type:"number (1–4)",                         desc:"Physical lane (1–4). Undefined or 0 for waitlisted bookings.", rule:"4 lanes total. Controlled by FacilitySettings.activeLanes.", opt:true },
+      { name:"createdAt",            type:"string (ISO 8601)",                    desc:"UTC timestamp of booking creation." },
+    ]
+  },
+  {
+    id: "InstructorAvailability", label: "InstructorAvailability", count: "~900 seeded",
+    x: 560, y: 430,
+    fields: [
+      { name:"id",             type:"string",           badge:"PK", desc:"Format: av{N}." },
+      { name:"instructorId",   type:"string",           badge:"FK", desc:"References Instructor.id." },
+      { name:"instructorName", type:"string",                       desc:"Denormalized from Instructor." },
+      { name:"date",           type:"string (YYYY-MM-DD)",          desc:"The calendar date this availability record applies to." },
+      { name:"slots",          type:"string[]",                     desc:'Array of available 30-min-aligned HH:MM start times, e.g. ["09:00","09:30","10:00"].', rule:"Booking wizard filters this against confirmed bookings to find open slots. Full lanes = waitlisted." },
+      { name:"endTime",        type:"string (HH:MM)",               desc:"Bookings must end by this time. startTime + duration must not exceed endTime." },
+      { name:"frozen",         type:"boolean",                      desc:"UI stub for a planned Freeze button. Currently has no effect on booking logic." },
+    ]
+  },
+  {
+    id: "Blackout", label: "Blackout", count: "0 (empty)",
+    x: 690, y: 340,
+    fields: [
+      { name:"id",          type:"string",  badge:"PK", desc:"Format: bl{N}." },
+      { name:"date",        type:"string",              desc:'"YYYY-MM-DD" for one-time blackouts. "MM-DD" for annual recurring blackouts (year ignored).', rule:'Matching: isRecurring ? b.date.slice(5) === dateStr.slice(5) : b.date === dateStr' },
+      { name:"isRecurring", type:"boolean",             desc:"True = repeats every year on the same month-day." },
+      { name:"reason",      type:"string",              desc:"Free-text reason shown to customers in the booking wizard." },
+    ]
+  },
+  {
+    id: "NotificationRecord", label: "NotificationRecord", count: "≤300 seeded",
+    x: 200, y: 980,
+    fields: [
+      { name:"id",               type:"string",                  badge:"PK", desc:"Format: n{N}." },
+      { name:"bookingId",        type:"string",                  badge:"FK", desc:"References Booking.id — which booking triggered this notification." },
+      { name:"bookingReference", type:"string",                              desc:"Denormalized from Booking for display." },
+      { name:"recipientType",    type:'"customer"|"instructor"|"admin"',     desc:"Who received this notification." },
+      { name:"recipientName",    type:"string",                              desc:"Display name of the recipient." },
+      { name:"recipientEmail",   type:"string",                              desc:"Email address or phone number of the recipient." },
+      { name:"notificationType", type:'"confirmation"|"waitlist"|...',       desc:"Event that triggered this notification.", rule:"confirmation: booking created. waitlist: booked but queued. reminder_24hr: day-before email. reminder_2hr_sms: 2hr SMS. change: booking modified. cancellation: cancelled. calendar_invite: iCal to instructor." },
+      { name:"channel",          type:'"email"|"sms"|"calendar"',           desc:"Delivery channel used." },
+      { name:"sentAt",           type:"string (ISO 8601)",                  desc:"UTC timestamp when the notification was sent." },
+      { name:"deliveryStatus",   type:'"sent"|"pending"|"failed"',          desc:"Current delivery outcome." },
+    ]
+  },
+  {
+    id: "FacilitySettings", label: "FacilitySettings", count: "singleton",
+    x: 690, y: 570,
+    fields: [
+      { name:"facilityName", type:"string", desc:'"The Diamond Sports Academy".' },
+      { name:"addressLine1", type:"string", desc:'"8274 Lokus Rd".' },
+      { name:"addressLine2", type:"string", desc:'"Odenton, MD 21113".' },
+      { name:"email",        type:"string", desc:"Facility contact email." },
+      { name:"phone",        type:"string", desc:'Display form: "(443) 865-1639".' },
+      { name:"phoneHref",    type:"string", desc:'tel: href: "tel:+14438651639".' },
+      { name:"website",      type:"string", desc:"Facility website URL." },
+      { name:"timezone",     type:"string", desc:'"America/New_York".' },
+      { name:"activeLanes",     type:"number", desc:"Active batting lanes (currently 4). Used for capacity checks in the booking wizard.", rule:"Reducing below current bookings does NOT retroactively cancel those bookings." },
+      { name:"adminUsername",   type:"string", desc:'Admin login username. Default: "admin". Validated client-side on the login page.', rule:"Prototype convenience — move to a dedicated Admin entity when a real DB is added." },
+      { name:"adminPassword",   type:"string", desc:'Admin login password (plaintext). Default: "diamond123". Changeable via Settings → Security.', rule:"Prototype only — plaintext storage. Production must hash with bcrypt in a dedicated Admin entity." },
+    ]
+  },
+];
+
+// [from, to, label, dashed]
+const RELS = [
+  ["Booking",              "Customer",              "many → 1", false],
+  ["Booking",              "Instructor",            "many → 1", false],
+  ["InstructorAvailability","Instructor",           "many → 1", false],
+  ["NotificationRecord",   "Booking",               "many → 1", false],
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const world    = document.getElementById("world");
+const svgEl    = document.getElementById("lines");
+const tip      = document.getElementById("tip");
+const viewport = document.getElementById("viewport");
+
+let vpX = 60, vpY = 40, vpScale = 0.82;
+let zOrder = 10;
+
+// Per-entity position (mutable as user drags)
+const pos = {};
+ENTITIES.forEach(e => { pos[e.id] = { x: e.x, y: e.y }; });
+
+// DOM refs
+const cardEls = {};
+
+// ── Build cards ───────────────────────────────────────────────────────────────
+function buildCards() {
+  ENTITIES.forEach((ent, ei) => {
+    const card = document.createElement("div");
+    card.className = "card";
+    card.id = "card-" + ent.id;
+    card.style.left = pos[ent.id].x + "px";
+    card.style.top  = pos[ent.id].y + "px";
+    card.style.zIndex = ei + 10;
+
+    // Header
+    const hdr = document.createElement("div");
+    hdr.className = "card-hdr";
+    hdr.innerHTML = `<span class="card-name">${ent.label}</span><span class="card-badge">${ent.count}</span>`;
+    card.appendChild(hdr);
+
+    // Body
+    const body = document.createElement("div");
+    body.className = "card-body";
+
+    ent.fields.forEach((f, fi) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.dataset.field = f.name;
+      row.dataset.type  = f.type;
+      row.dataset.desc  = f.desc;
+      if (f.rule) row.dataset.rule = f.rule;
+
+      const badgeCls = f.badge ? f.badge.toLowerCase() : "";
+      const nameCls  = "row-name" + (f.opt ? " opt" : "");
+      const shortT   = f.type.length > 17 ? f.type.slice(0, 15) + "…" : f.type;
+
+      row.innerHTML = `
+        <span class="row-badge ${badgeCls}">${f.badge || ""}</span>
+        <span class="${nameCls}">${f.name}</span>
+        <span class="row-type">${shortT}</span>
+      `;
+      body.appendChild(row);
+
+      if (fi === 0 && f.badge === "PK") {
+        const sep = document.createElement("div");
+        sep.className = "sep";
+        body.appendChild(sep);
+      }
+    });
+
+    card.appendChild(body);
+    world.appendChild(card);
+    cardEls[ent.id] = card;
+
+    // ── Per-card drag ──
+    let dragging = false, ox, oy;
+
+    hdr.addEventListener("mousedown", e => {
+      e.stopPropagation();
+      dragging = true;
+      card.classList.add("active");
+      card.style.zIndex = ++zOrder;
+      const r = card.getBoundingClientRect();
+      ox = e.clientX - r.left;
+      oy = e.clientY - r.top;
+
+      const onMove = ev => {
+        if (!dragging) return;
+        const nx = (ev.clientX - ox - vpX) / vpScale;
+        const ny = (ev.clientY - oy - vpY) / vpScale;
+        pos[ent.id].x = nx;
+        pos[ent.id].y = ny;
+        card.style.left = nx + "px";
+        card.style.top  = ny + "px";
+        drawLines();
+      };
+      const onUp = () => {
+        dragging = false;
+        card.classList.remove("active");
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+  });
+}
+
+// ── Draw relationship lines ───────────────────────────────────────────────────
+function getCardRect(id) {
+  const el = cardEls[id];
+  const r  = el.getBoundingClientRect();
+  const sr = world.getBoundingClientRect();
+  return {
+    x: (r.left - sr.left) / vpScale,
+    y: (r.top  - sr.top)  / vpScale,
+    w: r.width  / vpScale,
+    h: r.height / vpScale,
+  };
+}
+
+function drawLines() {
+  svgEl.innerHTML = "";
+
+  // Arrowhead markers
+  const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+  const mkMarker = (id, color) => {
+    const m = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+    m.setAttribute("id", id);
+    m.setAttribute("markerWidth", "9"); m.setAttribute("markerHeight", "9");
+    m.setAttribute("refX", "7"); m.setAttribute("refY", "3.5");
+    m.setAttribute("orient", "auto");
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", "M0,0 L0,7 L9,3.5 z");
+    p.setAttribute("fill", color);
+    m.appendChild(p); defs.appendChild(m);
+  };
+  mkMarker("arr",  "var(--accent)");
+  mkMarker("arrd", "var(--border-h)");
+  svgEl.appendChild(defs);
+
+  RELS.forEach(([fromId, toId, label, dashed]) => {
+    const from = getCardRect(fromId);
+    const to   = getCardRect(toId);
+
+    const fcx = from.x + from.w / 2, fcy = from.y + from.h / 2;
+    const tcx = to.x   + to.w   / 2, tcy = to.y   + to.h   / 2;
+    const dx = tcx - fcx, dy = tcy - fcy;
+
+    // Choose best edge
+    let x1, y1, x2, y2;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      x1 = dx > 0 ? from.x + from.w : from.x; y1 = fcy;
+      x2 = dx > 0 ? to.x            : to.x + to.w; y2 = tcy;
+    } else {
+      x1 = fcx; y1 = dy > 0 ? from.y + from.h : from.y;
+      x2 = tcx; y2 = dy > 0 ? to.y            : to.y + to.h;
+    }
+
+    // Bezier control points
+    const cx1 = x1 + (x2 - x1) * 0.42, cy1 = y1;
+    const cx2 = x2 - (x2 - x1) * 0.42, cy2 = y2;
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", `M${x1},${y1} C${cx1},${cy1} ${cx2},${cy2} ${x2},${y2}`);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", dashed ? "var(--border-h)" : "var(--accent)");
+    path.setAttribute("stroke-width", "1.5");
+    path.setAttribute("opacity", "0.75");
+    if (dashed) path.setAttribute("stroke-dasharray", "6,4");
+    path.setAttribute("marker-end", `url(#${dashed ? "arrd" : "arr"})`);
+    svgEl.appendChild(path);
+
+    // Midpoint label
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - 7;
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    textEl.setAttribute("x", mx); textEl.setAttribute("y", my);
+    textEl.setAttribute("text-anchor", "middle");
+    textEl.setAttribute("font-size", "9");
+    textEl.setAttribute("fill", dashed ? "var(--border-h)" : "var(--text2)");
+    textEl.setAttribute("font-family", "ui-monospace, monospace");
+    textEl.textContent = label;
+    svgEl.appendChild(textEl);
+  });
+}
+
+// ── Tooltip ───────────────────────────────────────────────────────────────────
+document.addEventListener("mouseover", e => {
+  const row = e.target.closest(".row");
+  if (!row) return;
+  document.getElementById("tip-field").textContent = row.dataset.field || "";
+  document.getElementById("tip-type").textContent  = row.dataset.type  || "";
+  document.getElementById("tip-desc").textContent  = row.dataset.desc  || "";
+  const ruleEl = document.getElementById("tip-rule");
+  ruleEl.textContent  = row.dataset.rule || "";
+  ruleEl.style.display = row.dataset.rule ? "block" : "none";
+  tip.classList.add("show");
+});
+
+document.addEventListener("mousemove", e => {
+  let lx = e.clientX + 14, ly = e.clientY - 8;
+  const tw = tip.offsetWidth || 280, th = tip.offsetHeight || 80;
+  if (lx + tw > window.innerWidth  - 6) lx = e.clientX - tw - 10;
+  if (ly + th > window.innerHeight - 6) ly = e.clientY - th - 10;
+  tip.style.left = lx + "px";
+  tip.style.top  = ly + "px";
+});
+
+document.addEventListener("mouseout", e => {
+  if (!e.target.closest(".row") || !e.relatedTarget?.closest?.(".row"))
+    tip.classList.remove("show");
+});
+
+// ── Viewport pan ──────────────────────────────────────────────────────────────
+function applyVP() {
+  world.style.transform = `translate(${vpX}px,${vpY}px) scale(${vpScale})`;
+}
+
+let panning = false, px0, py0, vx0, vy0;
+viewport.addEventListener("mousedown", e => {
+  if (e.target.closest(".card-hdr")) return;
+  panning = true; px0 = e.clientX; py0 = e.clientY; vx0 = vpX; vy0 = vpY;
+  viewport.classList.add("panning");
+});
+window.addEventListener("mousemove", e => {
+  if (!panning) return;
+  vpX = vx0 + e.clientX - px0;
+  vpY = vy0 + e.clientY - py0;
+  applyVP();
+});
+window.addEventListener("mouseup", () => { panning = false; viewport.classList.remove("panning"); });
+
+viewport.addEventListener("wheel", e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.91;
+  const rect = viewport.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const ns = Math.min(2.2, Math.max(0.28, vpScale * factor));
+  vpX = mx - (mx - vpX) * (ns / vpScale);
+  vpY = my - (my - vpY) * (ns / vpScale);
+  vpScale = ns;
+  applyVP();
+  requestAnimationFrame(drawLines);
+}, { passive: false });
+
+// ── Fit / Reset ───────────────────────────────────────────────────────────────
+document.getElementById("btn-reset").addEventListener("click", () => {
+  ENTITIES.forEach(e => { pos[e.id].x = e.x; pos[e.id].y = e.y; cardEls[e.id].style.left = e.x+"px"; cardEls[e.id].style.top = e.y+"px"; });
+  vpX = 60; vpY = 40; vpScale = 0.82;
+  applyVP(); requestAnimationFrame(drawLines);
+});
+
+document.getElementById("btn-fit").addEventListener("click", () => {
+  // Compute world bounding box
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  ENTITIES.forEach(e => {
+    const r = getCardRect(e.id);
+    minX=Math.min(minX,r.x); minY=Math.min(minY,r.y);
+    maxX=Math.max(maxX,r.x+r.w); maxY=Math.max(maxY,r.y+r.h);
+  });
+  const pad=50, vw=viewport.offsetWidth-pad*2, vh=viewport.offsetHeight-pad*2;
+  const s = Math.min(2.2, Math.max(0.28, Math.min(vw/(maxX-minX), vh/(maxY-minY))));
+  vpScale = s; vpX = pad - minX*s; vpY = pad - minY*s;
+  applyVP(); requestAnimationFrame(drawLines);
+});
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+buildCards();
+applyVP();
+setTimeout(drawLines, 120);
+window.addEventListener("resize", () => requestAnimationFrame(drawLines));
+</script>
+</body>
+</html>

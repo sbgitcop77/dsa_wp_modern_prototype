@@ -54,9 +54,9 @@ export default function CustomersPage() {
   const _n = new Date();
   const today = `${_n.getFullYear()}-${String(_n.getMonth() + 1).padStart(2, "0")}-${String(_n.getDate()).padStart(2, "0")}`;
 
-  const futureConfirmedBookings = useMemo(
+  const futureActiveBookings = useMemo(
     () => selected
-      ? allBookings.filter(b => b.customerId === selected.id && b.status === "confirmed" && b.date >= today)
+      ? allBookings.filter(b => b.customerId === selected.id && (b.status === "confirmed" || b.status === "waitlisted") && b.date >= today)
       : [],
     [selected, allBookings, today]
   );
@@ -66,8 +66,8 @@ export default function CustomersPage() {
     if (!c) return;
 
     if (c.isActive) {
-      // Cancel all future confirmed bookings
-      futureConfirmedBookings.forEach(b => {
+      // Cancel all future confirmed and waitlisted bookings
+      futureActiveBookings.forEach(b => {
         db.cancelBooking(b.id, "admin", "Customer account deactivated");
         notifyBoth(db, {
           bookingId: b.id,
@@ -87,7 +87,7 @@ export default function CustomersPage() {
     setSelected(updated);
     setToast({
       message: c.isActive
-        ? `Customer deactivated. ${futureConfirmedBookings.length} future booking${futureConfirmedBookings.length !== 1 ? "s" : ""} cancelled and confirmation email${futureConfirmedBookings.length !== 1 ? "s" : ""} sent.`
+        ? `Customer deactivated. ${futureActiveBookings.length} future booking${futureActiveBookings.length !== 1 ? "s" : ""} cancelled and notification${futureActiveBookings.length !== 1 ? "s" : ""} sent.`
         : "Customer reactivated.",
       type: "info",
     });
@@ -106,6 +106,26 @@ export default function CustomersPage() {
     setSelected(updated);
     setEditing(false);
     setToast({ message: "Customer updated.", type: "success" });
+  }
+
+  function incrementNoShow(id: string) {
+    const c = db.getCustomerById(id);
+    if (!c) return;
+    const newCount = c.noShowCount + 1;
+    const shouldFlag = !c.isFlagged && (newCount >= 2 || c.lateCancellationCount >= 3);
+    const updated = db.updateCustomer(id, { noShowCount: newCount, ...(shouldFlag ? { isFlagged: true } : {}) });
+    setSelected(updated);
+    setToast({ message: shouldFlag ? `No-show count updated to ${newCount}. Customer auto-flagged.` : `No-show count updated to ${newCount}.`, type: "info" });
+  }
+
+  function incrementLateCancel(id: string) {
+    const c = db.getCustomerById(id);
+    if (!c) return;
+    const newCount = c.lateCancellationCount + 1;
+    const shouldFlag = !c.isFlagged && (c.noShowCount >= 2 || newCount >= 3);
+    const updated = db.updateCustomer(id, { lateCancellationCount: newCount, ...(shouldFlag ? { isFlagged: true } : {}) });
+    setSelected(updated);
+    setToast({ message: shouldFlag ? `Late cancellation count updated to ${newCount}. Customer auto-flagged.` : `Late cancellation count updated to ${newCount}.`, type: "info" });
   }
 
   function toggleSmsOptOut(id: string) {
@@ -165,6 +185,8 @@ export default function CustomersPage() {
               <p className="font-semibold text-[#212529] mb-3">Activity Summary</p>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-[#6c757d]">Flagged</span><span className={selected.isFlagged ? "font-medium text-red-600" : "font-medium"}>{selected.isFlagged ? "Yes" : "No"}</span></div>
+                <div className="flex justify-between"><span className="text-[#6c757d]">No-Shows</span><span className={selected.noShowCount >= 2 ? "font-medium text-red-600" : "font-medium"}>{selected.noShowCount}</span></div>
+                <div className="flex justify-between"><span className="text-[#6c757d]">Late Cancellations</span><span className={selected.lateCancellationCount >= 3 ? "font-medium text-red-600" : "font-medium"}>{selected.lateCancellationCount}</span></div>
               </div>
             </div>
             {/* SMS preference */}
@@ -189,6 +211,12 @@ export default function CustomersPage() {
             <div className="card p-5 space-y-2">
               <button onClick={() => toggleFlag(selected.id)} className="btn-secondary w-full justify-center text-sm">
                 {selected.isFlagged ? "Unflag Customer" : "Flag Customer"}
+              </button>
+              <button onClick={() => incrementNoShow(selected.id)} className="btn-secondary w-full justify-center text-sm">
+                + No-Show ({selected.noShowCount})
+              </button>
+              <button onClick={() => incrementLateCancel(selected.id)} className="btn-secondary w-full justify-center text-sm">
+                + Late Cancellation ({selected.lateCancellationCount})
               </button>
               <button onClick={() => setDeactivateConfirm(true)} className={`w-full justify-center text-sm ${selected.isActive ? "btn-danger" : "btn-primary"}`} style={selected.isActive ? {} : { backgroundColor: "#337C99" }}>
                 {selected.isActive ? "Deactivate Customer" : "Reactivate Customer"}
@@ -243,12 +271,12 @@ export default function CustomersPage() {
               {selected.isActive ? (
                 <>
                   <p>Are you sure you want to deactivate <strong className="text-[#212529]">{selected.firstName} {selected.lastName}</strong>?</p>
-                  {futureConfirmedBookings.length > 0 ? (
+                  {futureActiveBookings.length > 0 ? (
                     <p className="border border-amber-200 bg-amber-50 rounded-lg p-3 text-amber-800">
-                      <strong>{futureConfirmedBookings.length} future booking{futureConfirmedBookings.length !== 1 ? "s" : ""}</strong> will be cancelled and a cancellation email will be sent to <strong>{selected.email}</strong>.
+                      <strong>{futureActiveBookings.length} future booking{futureActiveBookings.length !== 1 ? "s" : ""}</strong> (confirmed and waitlisted) will be cancelled and a cancellation notification will be sent to <strong>{selected.email}</strong>.
                     </p>
                   ) : (
-                    <p>This customer has no upcoming bookings.</p>
+                    <p>This customer has no upcoming confirmed or waitlisted bookings.</p>
                   )}
                 </>
               ) : (

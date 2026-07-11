@@ -6,22 +6,7 @@ import Toast from "@/components/Toast";
 
 type Tab = "general" | "lanes" | "notifications" | "cancellation" | "security";
 
-const INITIAL_NOTIFICATIONS = {
-  sendConfirmationEmail: true,
-  send24hrReminder: true,
-  send2hrSmsReminder: true,
-  sendCalendarInvite: true,
-  notifyAdminOnNewBooking: true,
-  notifyAdminOnCancellation: true,
-  adminNotificationEmail: "admin@diamondsports.com",
-};
 
-const INITIAL_CANCELLATION = {
-  lateCancelWindowHours: "24",
-  noShowPolicy: "Customers who miss a session without cancelling will be marked as No-Show after 15 minutes.",
-  allowCustomerSelfCancel: true,
-  requireCancellationReason: false,
-};
 
 type LaneConflictBooking = { bookingReference: string; customerName: string; date: string; startTime: string; laneAssigned: number };
 
@@ -41,8 +26,6 @@ export default function SettingsPage() {
     timezone: storedSettings.timezone,
     activeLanes: String(storedSettings.activeLanes),
   });
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
-  const [cancellation, setCancellation] = useState(INITIAL_CANCELLATION);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -92,19 +75,9 @@ export default function SettingsPage() {
     commitLaneSave(newCount);
   }
 
-  function saveNotifications(e: React.FormEvent) {
+function changePassword(e: React.FormEvent) {
     e.preventDefault();
-    setToast({ message: "Notification settings saved.", type: "success" });
-  }
-
-  function saveCancellation(e: React.FormEvent) {
-    e.preventDefault();
-    setToast({ message: "Cancellation policy saved.", type: "success" });
-  }
-
-  function changePassword(e: React.FormEvent) {
-    e.preventDefault();
-    if (currentPassword !== "diamond123") {
+    if (currentPassword !== storedSettings.adminPassword) {
       setToast({ message: "Current password is incorrect.", type: "error" });
       return;
     }
@@ -116,6 +89,7 @@ export default function SettingsPage() {
       setToast({ message: "Password must be at least 8 characters.", type: "error" });
       return;
     }
+    db.updateFacilitySettings({ adminPassword: newPassword });
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
@@ -237,110 +211,76 @@ export default function SettingsPage() {
 
         {/* Notifications */}
         {tab === "notifications" && (
-          <form onSubmit={saveNotifications} className="card p-6 space-y-5">
-            <h2 className="font-semibold text-[#212529]">Customer Notifications</h2>
-            <div className="space-y-3">
-              {([
-                ["sendConfirmationEmail", "Send confirmation email on booking"],
-                ["send24hrReminder", "Send 24-hour email reminder"],
-                ["send2hrSmsReminder", "Send 2-hour SMS reminder"],
-                ["sendCalendarInvite", "Send Calendar invite"],
-              ] as [keyof typeof notifications, string][]).map(([key, label]) => (
-                <label key={key} className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={notifications[key] as boolean}
-                    onChange={e => setNotifications(n => ({ ...n, [key]: e.target.checked }))}
-                    className="rounded"
-                  />
-                  <span className="text-sm text-[#212529]">{label}</span>
-                </label>
-              ))}
+          <div className="space-y-5">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              Notifications are sent automatically by the system on every qualifying event. The channels and recipients below are fixed and apply to all bookings.
             </div>
 
-            <div className="border-t border-gray-200 pt-4">
-              <h2 className="font-semibold text-[#212529] mb-3">Admin Notifications</h2>
-              <div className="space-y-3">
+            <div className="card p-6 space-y-4">
+              <h2 className="font-semibold text-[#212529]">Customer Notifications</h2>
+              <div className="space-y-3 text-sm">
                 {([
-                  ["notifyAdminOnNewBooking", "Notify admin on new booking"],
-                  ["notifyAdminOnCancellation", "Notify admin on cancellation"],
-                ] as [keyof typeof notifications, string][]).map(([key, label]) => (
-                  <label key={key} className="flex items-center gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={notifications[key] as boolean}
-                      onChange={e => setNotifications(n => ({ ...n, [key]: e.target.checked }))}
-                      className="rounded"
-                    />
-                    <span className="text-sm text-[#212529]">{label}</span>
-                  </label>
+                  ["Booking confirmed", "Email + SMS + Calendar invite"],
+                  ["Booking waitlisted", "Email + SMS"],
+                  ["Booking cancelled", "Email + SMS"],
+                  ["Booking rescheduled", "Email + SMS"],
+                  ["24-hour reminder", "Email"],
+                  ["2-hour reminder", "SMS"],
+                ] as [string, string][]).map(([event, channels]) => (
+                  <div key={event} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-0">
+                    <span className="text-[#212529]">{event}</span>
+                    <span className="text-[#6c757d]">{channels}</span>
+                  </div>
                 ))}
-                <div>
-                  <label className="label">Admin Notification Email</label>
-                  <input
-                    className="input"
-                    type="email"
-                    value={notifications.adminNotificationEmail}
-                    onChange={e => setNotifications(n => ({ ...n, adminNotificationEmail: e.target.value }))}
-                  />
-                </div>
               </div>
+              <p className="text-xs text-[#6c757d]">SMS is skipped for customers who have opted out. Calendar invites go to customers only.</p>
             </div>
-            <div className="pt-2">
-              <button type="submit" className="btn-primary text-sm">Save Changes</button>
+
+            <div className="card p-6 space-y-4">
+              <h2 className="font-semibold text-[#212529]">Admin Notifications</h2>
+              <div className="space-y-3 text-sm">
+                {([
+                  ["Booking confirmed", "Email"],
+                  ["Booking waitlisted", "Email"],
+                  ["Booking cancelled", "Email"],
+                  ["Booking rescheduled", "Email"],
+                ] as [string, string][]).map(([event, channels]) => (
+                  <div key={event} className="flex items-center justify-between py-1 border-b border-gray-100 last:border-0">
+                    <span className="text-[#212529]">{event}</span>
+                    <span className="text-[#6c757d]">{channels}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-[#6c757d]">Admin notifications are sent to the facility's configured email address. Instructors do not receive automated notifications.</p>
             </div>
-          </form>
+          </div>
         )}
 
         {/* Cancellation Policy */}
         {tab === "cancellation" && (
-          <form onSubmit={saveCancellation} className="card p-6 space-y-4">
-            <h2 className="font-semibold text-[#212529] mb-2">Cancellation Policy</h2>
-            <div>
-              <label className="label">Late Cancellation Window (hours before session)</label>
-              <select
-                className="input w-40"
-                value={cancellation.lateCancelWindowHours}
-                onChange={e => setCancellation(c => ({ ...c, lateCancelWindowHours: e.target.value }))}
-              >
-                <option value="12">12 hours</option>
-                <option value="24">24 hours</option>
-                <option value="48">48 hours</option>
-              </select>
+          <div className="space-y-5">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              These are the current cancellation rules enforced by the system. They are fixed and apply to all bookings.
             </div>
-            <div>
-              <label className="label">No-Show Policy</label>
-              <textarea
-                className="input resize-none"
-                rows={3}
-                value={cancellation.noShowPolicy}
-                onChange={e => setCancellation(c => ({ ...c, noShowPolicy: e.target.value }))}
-              />
+            <div className="card p-6 space-y-4 text-sm">
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-[#6c757d]">Late Cancellation Window</span>
+                <span className="font-medium text-[#212529]">24 hours before session</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-[#6c757d]">Customer Self-Cancellation</span>
+                <span className="font-medium text-[#212529]">Allowed (via manage link)</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-[#6c757d]">Cancellation Reason Required</span>
+                <span className="font-medium text-[#212529]">No</span>
+              </div>
+              <div className="py-2">
+                <p className="text-[#6c757d] mb-1">No-Show Policy</p>
+                <p className="text-[#212529]">Customers who miss a session without cancelling will be marked as No-Show after 15 minutes.</p>
+              </div>
             </div>
-            <div className="space-y-3 pt-1">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={cancellation.allowCustomerSelfCancel}
-                  onChange={e => setCancellation(c => ({ ...c, allowCustomerSelfCancel: e.target.checked }))}
-                  className="rounded"
-                />
-                <span className="text-sm text-[#212529]">Allow customers to self-cancel via cancellation link</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={cancellation.requireCancellationReason}
-                  onChange={e => setCancellation(c => ({ ...c, requireCancellationReason: e.target.checked }))}
-                  className="rounded"
-                />
-                <span className="text-sm text-[#212529]">Require cancellation reason from customers</span>
-              </label>
-            </div>
-            <div className="pt-2">
-              <button type="submit" className="btn-primary text-sm">Save Changes</button>
-            </div>
-          </form>
+          </div>
         )}
 
         {/* Security */}
@@ -389,7 +329,7 @@ export default function SettingsPage() {
 
             <div className="card p-6">
               <h2 className="font-semibold text-[#212529] mb-1">Admin Account</h2>
-              <p className="text-sm text-[#6c757d] mb-3">Logged in as <strong>Alexis Rivera</strong> (Administrator)</p>
+              <p className="text-sm text-[#6c757d] mb-3">Logged in as <strong>{storedSettings.adminUsername}</strong> (Administrator)</p>
               <a href="/admin/login" className="text-sm text-[#f33b41] hover:underline">Sign Out</a>
             </div>
           </div>

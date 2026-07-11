@@ -52,7 +52,6 @@ src/
       customers.ts            ← seed customers
       instructors.ts          ← seed instructors
       schedule.ts             ← seed availability, blackouts, operating hours
-      waitlist.ts             ← seed waitlist entries
       notifications.ts        ← seed notifications
   components/
     StoreHydration.tsx        ← hydrates Zustand from localStorage on mount
@@ -89,7 +88,7 @@ type Booking = {
   isWalkIn: boolean;
   cancelledBy?: "customer" | "admin";
   cancellationReason?: string;
-  conflictReason?: "instructor_conflict" | "lane_at_capacity";  // set on waitlisted bookings
+  conflictReason?: "instructor_conflict";  // set on waitlisted bookings
   laneAssigned?: number;              // 1–activeLanes; undefined for non-lane instructors
   createdAt: string;                  // ISO timestamp
 };
@@ -97,14 +96,13 @@ type Booking = {
 
 **Key notes on `status`:**
 - `confirmed` — active, upcoming session
-- `waitlisted` — booking created but slot has a conflict (instructor double-booked or lane full). Customer or admin must explicitly confirm when slot opens. `conflictReason` is always set.
+- `waitlisted` — booking created but instructor is already booked at this slot. Customer or admin must explicitly confirm when slot opens. `conflictReason` is always set to `"instructor_conflict"`.
 - `cancelled` — cancelled by customer or admin
 - `no_show` — set manually by admin after the session date
 - `completed` — set manually by admin after delivery
 
 **`conflictReason` on waitlisted bookings:**
 - `instructor_conflict` — the instructor is already confirmed for an overlapping slot on that date
-- `lane_at_capacity` — all facility lanes are full for that slot
 
 ### 4.2 Customer
 
@@ -169,9 +167,8 @@ In production: `slots` are **computed** from `start_time` to `end_time` using `g
 
 - `OperatingHours` — one record per day of week (0=Sun … 6=Sat), with `openTime`, `closeTime`, `isClosed`
 - `Blackout` — `date` (YYYY-MM-DD), `isRecurring` (if true, only MM-DD matched), `reason`
-- `WaitlistEntry` — join-the-waitlist record (separate from `waitlisted` booking status — see §6.3)
 - `NotificationRecord` — audit log of sent notifications
-- `FacilitySettings` — name, address, phone, email, website, timezone, activeLanes
+- `FacilitySettings` — name, address, phone, email, website, timezone, activeLanes, adminUsername, adminPassword
 
 ---
 
@@ -216,12 +213,6 @@ interface DataService {
   // Instructor Availability
   getAvailability(filters?: { instructorId?: string; date?: string }): InstructorAvailability[];
   upsertAvailability(instructorId: string, date: string, slots: string[], endTime: string): InstructorAvailability;
-
-  // Waitlist
-  getWaitlist(): WaitlistEntry[];
-  createWaitlistEntry(data: NewWaitlistEntry): WaitlistEntry;
-  promoteWaitlistEntry(id: string, bookingId: string): WaitlistEntry;
-  deleteWaitlistEntry(id: string): void;
 
   // Notifications
   getNotifications(): NotificationRecord[];
@@ -268,9 +259,9 @@ Full rule set with source tags. Rules marked **Bug fix** were incorrect or missi
 | # | Rule | Source |
 |---|---|---|
 | FS-01 | Single settings record per facility. | Original |
-| FS-02 | Fields: name, address, email, phone, website, timezone, active lane count. | Original |
+| FS-02 | Fields: name, address, email, phone, website, timezone, activeLanes, adminUsername, adminPassword. | Original |
 | FS-03 | `activeLanes` drives lane conflict logic. Changing it affects all slot availability calculations in real time. | Original |
-| FS-04 | Admin credentials must be stored as bcrypt-hashed passwords in `admin_users` table — never hardcoded. | Enhancement |
+| FS-04 | `adminUsername` / `adminPassword` stored in plaintext in Zustand; validated client-side. Production must use server-side bcrypt in a dedicated `Admin` entity. | By design (prototype) |
 
 ### 6.2 Operating Hours
 
@@ -353,7 +344,7 @@ This is the most complex part of the system. Read carefully.
 | R-01 | All future weeks in a recurring series are validated **before** the series is confirmed. | Original |
 | R-02 | Per-week validation checks four conditions in order: (1) date is not a blackout, (2) instructor has availability with the requested slot, (3) requested slot fits within the instructor's end time, (4) instructor has no confirmed overlapping booking. | Bug fix |
 | R-03 | A week with a **hard block** prevents the entire series from being confirmed. Hard blocks: blackout, instructor has no availability, slot window mismatch. | New feature |
-| R-04 | A week with a **soft block (waitlisted)** does NOT prevent the series from being confirmed. Soft blocks: instructor conflict, lane at capacity. The conflicting week is created as a `waitlisted` booking with the appropriate `conflictReason`. | New feature |
+| R-04 | A week with a **soft block (waitlisted)** does NOT prevent the series from being confirmed. Soft block: instructor conflict. The conflicting week is created as a `waitlisted` booking with `conflictReason: "instructor_conflict"`. | New feature |
 | R-05 | Week 0 (the selected base date) is always `confirmed` — the wizard requires the base date to already be valid before reaching Step 3. | New feature |
 | R-06 | All bookings in a series share the same `recurringSeriesId`. | Original |
 | R-07 | Cancelling a series: customer or admin may cancel a single occurrence OR all future occurrences from a given date. `cancelSeries` cancels both `confirmed` and `waitlisted` bookings. | Bug fix |
@@ -368,7 +359,7 @@ The wizard uses this to classify each future week before calling `confirm()`:
 type WeeklyStatus = {
   date: string;
   status: "confirmed" | "waitlisted" | "hard_block";
-  reason?: "blackout" | "no_availability" | "slot_window" | "instructor_conflict" | "lane_at_capacity";
+  reason?: "blackout" | "no_availability" | "slot_window" | "instructor_conflict";
 };
 ```
 
@@ -393,7 +384,7 @@ Waitlisted reasons → amber info in Step 3 → Next button enabled, week create
 
 | # | Rule | Source |
 |---|---|---|
-| RS-01 | Instructor shown as read-only in reschedule form (cannot change instructor). | Enhancement |
+| RS-01 | Instructor shown as read-only in reschedule form (cannot change instructor). To reassign, cancel and rebook. | By design |
 | RS-02 | Calendar filtered to the booking's instructor's availability dates only. | Bug fix |
 | RS-03 | Blackout dates disabled in the reschedule date picker. | Bug fix |
 | RS-04 | Only future dates shown. | Original |
@@ -419,14 +410,7 @@ Waitlisted reasons → amber info in Step 3 → Next button enabled, week create
 
 ### 6.12 Waitlist Entries (separate from Waitlisted Bookings)
 
-The system has two distinct waitlist concepts:
-
-| Concept | Description |
-|---|---|
-| `waitlisted` booking status | A booking that **was created** as part of a recurring series but for a week where the instructor is already booked or lanes are full. The session exists in the system; the customer just needs to confirm when the slot opens. |
-| `WaitlistEntry` (join-waitlist) | A lightweight record for a customer who wants to be notified when a **specific slot** becomes available. No booking is created. Separate admin waitlist page. |
-
-Do not conflate these two concepts in the DB or API.
+A `waitlisted` booking is a `Booking` record with `status: "waitlisted"` — created when a recurring series slot has an instructor conflict. The session exists in the system; admin can confirm it to move it to `confirmed`. There is no separate `WaitlistEntry` entity — that concept was removed.
 
 ### 6.13 Display Rules
 
@@ -465,7 +449,7 @@ status TEXT NOT NULL DEFAULT 'confirmed'
   CHECK (status IN ('confirmed', 'cancelled', 'no_show', 'completed', 'waitlisted'));
 
 conflict_reason TEXT
-  CHECK (conflict_reason IN ('instructor_conflict', 'lane_at_capacity'));
+  CHECK (conflict_reason IN ('instructor_conflict'));
 
 -- conflict_reason must be set when status = 'waitlisted'
 -- Enforce application-side; optional DB trigger:
@@ -585,7 +569,6 @@ The store key is `dsa-app-store`. The shape of the state (for reference when imp
   availability: InstructorAvailability[];
   blackouts: Blackout[];
   operatingHours: OperatingHours[];
-  waitlist: WaitlistEntry[];
   notifications: NotificationRecord[];
   facilitySettings: FacilitySettings;
   // setters for each:
@@ -606,13 +589,12 @@ In production, the store is still useful as a **client cache** (React Query + Zu
 | Gap | Severity | Description |
 |---|---|---|
 | `confirmWaitlisted` no re-verify | **High** | Prototype confirms without re-checking availability. Production API must validate before confirming (§7.2). |
-| Hardcoded admin credentials | **High** | `admin / diamond123` in `src/app/api/admin/auth/route.ts`. Must use `admin_users` table with bcrypt in production. |
+| Client-side credential validation | **High** | `adminUsername` / `adminPassword` stored in plaintext in Zustand, validated client-side. API route sets the session cookie without checking credentials. Must use server-side bcrypt in a dedicated `Admin` entity in production. |
 | No email/SMS sending | **High** | Notifications are written to store but never actually sent. Production needs Resend (email) + Twilio (SMS). |
 | No real payment | **Medium** | No payment integration exists. Prototype assumes payment is collected at session time. |
 | No booking reference link in email | **Medium** | The manage booking page URL (`/manage/[bookingRef]`) is never emailed to the customer. This must be sent in the booking confirmation email. |
 | Recurring series `recurringSeriesId` | **Medium** | Prototype uses a bare string ID with no series metadata table. Production needs the `recurring_series` table (DATA_MODEL.md §Recurring series). |
-| Customer deactivation doesn't cancel bookings | **Low** | Deactivating a customer leaves their bookings intact. Admin must manually review. |
-| `noShowCount` / `lateCancellationCount` not auto-incremented | **Low** | Currently incremented only by admin action. Consider automating on status change. |
+| `noShowCount` / `lateCancellationCount` not auto-incremented | **Low** | Incremented manually by admin via the + No-Show / + Late Cancellation buttons. Consider automating on status change in production. |
 
 ---
 

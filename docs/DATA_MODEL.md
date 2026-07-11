@@ -1,498 +1,380 @@
-# Data Model Design — Diamond Sports Academy
+# DSA Data Model Reference
 
-## Context
-The prototype uses flat TypeScript arrays as mock data. This plan designs the production
-relational data model for PostgreSQL on NeonDB (serverless). The goal is to capture every
-entity, attribute, and relationship from the prototype accurately, close the gaps (e.g. no
-explicit recurring series table, no admin user table), and produce a model ready for use
-with the Neon serverless HTTP driver and raw SQL or Drizzle ORM.
+**Source of truth**: `src/data/types.ts`  
+**Mock implementations**: `src/data/mock/*.ts`  
+**Store**: `src/data/store/useAppStore.ts`
+
+All entities are TypeScript interfaces. There is no real database — data lives in Zustand's `persist` store (localStorage key `dsa-app-store`) and is seeded from mock generators on first load or when the store version changes.
+
+> **Note:** `src/data/mock/waitlist.ts` was removed. The `WaitlistEntry` type and its separate queue concept were replaced — waitlisted sessions are now regular `Booking` records with `status: "waitlisted"`.
 
 ---
 
-## Key Design Decisions
+## Entity Overview
 
-| Decision | Choice | Rationale |
+| Entity | File | Seeded Count | Purpose |
+|---|---|---|---|
+| `Customer` | `mock/customers.ts` | 150 | People who book sessions |
+| `Instructor` | `mock/instructors.ts` | 11 | Staff who deliver sessions |
+| `Booking` | `mock/bookings.ts` | ~3,000 | A scheduled training session (includes waitlisted bookings) |
+| `InstructorAvailability` | `mock/schedule.ts` | ~900 | Available time slots per instructor per date |
+| `OperatingHours` | `mock/schedule.ts` | 7 | Facility open/close per day of week |
+| `Blackout` | `mock/schedule.ts` | 0 (empty) | Dates when facility is closed |
+| `NotificationRecord` | `mock/notifications.ts` | ≤300 | Log of emails/SMS/calendar events sent |
+| `FacilitySettings` | `types.ts` only | — | Singleton facility config (no mock data) |
+
+---
+
+## Customer
+
+**File**: `src/data/mock/customers.ts`  
+**Seed**: 150 deterministic records, seeded with `RNG(42)`  
+**Store key**: `customers[]`
+
+Represents a person who books sessions at the facility. Customers are created automatically when someone completes the public booking wizard (deduplication by email).
+
+```ts
+type Customer = {
+  id: string;                    // "c1" … "c150"
+  firstName: string;
+  lastName: string;
+  email: string;                 // Unique. Lowercase. Used for deduplication.
+  phone: string;                 // Format: "(443) 555-XXXX"
+  isActive: boolean;             // false = deactivated; future bookings auto-cancelled
+  isFlagged: boolean;            // Auto-set: noShowCount ≥ 2 OR lateCancellationCount ≥ 3
+  noShowCount: number;           // Incremented by admin on "no show" status
+  lateCancellationCount: number; // Incremented when cancelled within 24 h of session
+  smsOptOut: boolean;            // If true, no SMS reminders are sent
+  source: "online_booking" | "admin_booking" | "import";
+  createdAt: string;             // ISO 8601 UTC
+  deactivatedAt?: string;        // Set when isActive → false. Never cleared.
+};
+```
+
+**Business rules**:
+- `isFlagged` can be toggled manually by admin (Flag/Unflag button) or set automatically when the increment buttons cross a threshold: `noShowCount ≥ 2 OR lateCancellationCount ≥ 3`. Auto-flagging fires only in the `incrementNoShow` / `incrementLateCancel` handlers in `admin/customers/page.tsx` — `MockDataService.updateCustomer()` itself does not recalculate it
+- Deactivated customers' future **confirmed and waitlisted** bookings are all cancelled when `isActive` is set to false; a cancellation notification is sent for each
+- Email matching is case-insensitive; `test@EMAIL.com` and `test@email.com` are the same customer
+- `source` is cosmetic — it does not restrict any operations
+
+---
+
+## Instructor
+
+**File**: `src/data/mock/instructors.ts`  
+**Seed**: 11 hand-authored records (i1–i11; i4 is inactive)  
+**Store key**: `instructors[]`
+
+Represents a coach or trainer. Instructors have a weekly recurring availability template plus per-date overrides.
+
+```ts
+type Instructor = {
+  id: string;                     // "i1" … "i11"
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  speciality: string;             // Display label, e.g. "Hitting & Pitching"
+  type: string;                   // Display type for filter pills, e.g. "Lane Instructor"
+  instructor_type: string;        // "lane" for all current instructors (stub for future non-lane types)
+  isActive: boolean;
+  totalSessionsDelivered: number; // Static display counter; not recalculated from bookings
+  upcomingSessions: number;       // Static display counter; not recalculated from bookings
+  createdAt: string;
+  deactivatedAt?: string;
+  availability: InstructorSchedule;
+};
+
+type InstructorSchedule = {
+  recurring: Record<number, DaySlot>; // Keys 0 (Sun) through 6 (Sat) — weekly default template
+  scheduledDates: Record<string, DaySlot>; // "YYYY-MM-DD" keys — per-date overrides
+  frozen: boolean;                // UI stub: Freeze button exists but does not affect logic
+};
+
+type DaySlot = {
+  active: boolean;      // false = not available that day
+  start: string | null; // HH:MM, e.g. "09:00"
+  end: string | null;   // HH:MM, e.g. "17:00"
+};
+```
+
+**Notes**:
+- `InstructorAvailability` records (used by the booking wizard) are derived from `INSTRUCTOR_PATTERNS` in `schedule.ts`, not from the `Instructor.availability` field. The two systems are currently independent.
+- `type` and `instructor_type` are separate: `type` is the admin-visible display label; `instructor_type` is reserved for booking routing logic (currently all `"lane"`).
+
+---
+
+## Booking
+
+**File**: `src/data/mock/bookings.ts`  
+**Seed**: ~3,000 records covering 30 days back to 90 days forward  
+**Store key**: `bookings[]`
+
+The central entity. One booking = one training session between one customer and one instructor in one lane.
+
+```ts
+type Booking = {
+  id: string;                    // "b1", "b2", …
+  bookingReference: string;      // "DSA-YYYY-NNNNN" — shown to customer; used on manage page
+  cancellationToken: string;     // "tok-bN-XXXXXXXX" — in the /manage/[ref] URL
+  customerId: string;            // FK → Customer.id
+  customerName: string;          // Denormalized from Customer at booking time
+  instructorId: string;          // FK → Instructor.id
+  instructorName: string;        // Denormalized from Instructor at booking time
+  date: string;                  // "YYYY-MM-DD"
+  startTime: string;             // "HH:MM" (30-minute aligned)
+  endTime: string;               // "HH:MM" (computed: startTime + durationMinutes)
+  durationMinutes: 30 | 60;
+  status: "confirmed" | "cancelled" | "no_show" | "completed" | "waitlisted";
+  isForChild: boolean;           // True when the booker is scheduling for another athlete
+  childName?: string;            // Athlete's name when isForChild = true
+  childAge?: number;             // Athlete's age (1–99) when isForChild = true
+  relationshipToCustomer?: string; // "Parent", "Guardian", "Coach", etc.
+  bookedByName?: string;         // The booking customer's name when isForChild = true
+  isRecurring: boolean;          // Part of a multi-week recurring series
+  recurringSeriesId?: string;    // "series-N" — shared by all siblings in the series
+  isWalkIn: boolean;             // Legacy field — walk-in concept removed. Always false on new bookings. Retained in type to avoid breaking existing seed data.
+  cancelledBy?: "customer" | "admin";
+  cancellationReason?: string;
+  conflictReason?: "instructor_conflict"; // Set when status = "waitlisted"
+  laneAssigned?: number;         // 1–4; undefined or 0 for waitlisted bookings
+  createdAt: string;             // ISO 8601 UTC
+};
+```
+
+**Key behaviors**:
+- The `/manage/[ref]` URL uses `bookingReference` (e.g. `/manage/DSA-20260711-4823`). Both the confirmation screen link and the manage page lookup use `bookingReference`.
+- When `isForChild = true`, the admin Customer column shows `childName` (the participant) rather than `customerName` (the booker).
+- `recurringSeriesId` links siblings. Cancelling a series cancels all future siblings with the same `recurringSeriesId` and `status !== "cancelled"`.
+- `status = "waitlisted"` means the instructor was already booked at this slot. `conflictReason` is always `"instructor_conflict"` — lane capacity conflicts do not produce waitlisted bookings in the current implementation.
+
+---
+
+## InstructorAvailability
+
+**File**: `src/data/mock/schedule.ts`  
+**Seed**: ~900 records covering 13 weeks from today  
+**Store key**: `availability[]`
+
+Flattened date-keyed availability records. One record = one instructor on one date with a list of available 30-minute start times. This is what the public booking wizard queries to show available slots.
+
+```ts
+type InstructorAvailability = {
+  id: string;              // "av1", "av2", …
+  instructorId: string;    // FK → Instructor.id
+  instructorName: string;  // Denormalized
+  date: string;            // "YYYY-MM-DD"
+  slots: string[];         // HH:MM start times, e.g. ["09:00","09:30","10:00",…]
+  endTime: string;         // HH:MM — bookings must end by this time
+  frozen: boolean;         // UI stub for upcoming Freeze button feature; not enforced
+};
+```
+
+**Notes**:
+- `slots` are generated from `INSTRUCTOR_PATTERNS` in `schedule.ts`. The booking wizard filters these against existing bookings to determine which slots are still open.
+- A slot is "full" when all 4 lanes are occupied at that time. Overflow slots get `status = "waitlisted"`.
+- Facility blackout dates are excluded at generation time.
+
+---
+
+## OperatingHours
+
+**File**: `src/data/mock/schedule.ts`  
+**Seed**: 7 static records (one per day of week)  
+**Store key**: `operatingHours[]`
+
+Defines when the facility is open. The public booking wizard and schedule grids use these for grid boundaries.
+
+```ts
+type OperatingHours = {
+  id: string;          // "oh1" … "oh7"
+  dayOfWeek: string;   // "Monday", "Tuesday", … "Sunday"
+  openTime: string;    // "HH:MM" — currently "06:00" for all days
+  closeTime: string;   // "HH:MM" — currently "24:00" (midnight) for all days
+  isClosed: boolean;   // true = facility closed that day; currently false for all days
+};
+```
+
+**Current values**: Open 06:00–24:00 every day. Editable via Admin Settings.
+
+---
+
+## Blackout
+
+**File**: `src/data/mock/schedule.ts`  
+**Seed**: Empty array (`BLACKOUTS = []`)  
+**Store key**: `blackouts[]`
+
+Dates on which the facility is unavailable. The booking wizard filters blackout dates out of the calendar picker.
+
+```ts
+type Blackout = {
+  id: string;
+  date: string;         // "YYYY-MM-DD" for one-time; "MM-DD" for recurring annual blackouts
+  isRecurring: boolean; // true = matches every year on the same MM-DD
+  reason: string;       // Free text, shown to customer
+};
+```
+
+**Notes**:
+- Matching logic: `isRecurring ? b.date.slice(5) === dateStr.slice(5) : b.date === dateStr`
+- Blackouts start empty and are added by admin via Settings → Blackout Dates.
+- Deleting a blackout does **not** auto-confirm waitlisted bookings for that date.
+
+---
+
+## NotificationRecord
+
+**File**: `src/data/mock/notifications.ts`  
+**Seed**: ≤300 records derived from the past 30 days of bookings, seeded with `RNG(7777)`  
+**Store key**: `notifications[]`
+
+An immutable log entry representing one message sent (email, SMS, or calendar event). Created via `notifyBoth()` in `src/data/service/notifyUtils.ts`.
+
+```ts
+type NotificationRecord = {
+  id: string;                  // "n1", "n2", …
+  bookingId: string;           // FK → Booking.id
+  bookingReference: string;    // Denormalized from Booking
+  recipientType: "customer" | "instructor" | "admin";
+  recipientName: string;
+  recipientEmail: string;
+  notificationType:
+    | "confirmation"       // Booking created
+    | "waitlist"           // Booking created but waitlisted
+    | "reminder_24hr"      // 24-hour advance reminder
+    | "reminder_2hr_sms"   // 2-hour advance SMS reminder
+    | "change"             // Booking rescheduled or modified
+    | "cancellation"       // Booking cancelled
+    | "calendar_invite";   // iCal event sent to instructor
+  channel: "email" | "sms" | "calendar";
+  sentAt: string;              // ISO 8601 UTC
+  deliveryStatus: "sent" | "pending" | "failed";
+};
+```
+
+**Notification channel matrix** (what gets sent per event):
+
+| Event | Customer email | Customer SMS | Admin email | Instructor calendar |
+|---|---|---|---|---|
+| Booking confirmed | ✓ | ✓ | ✓ | ✓ |
+| Booking waitlisted | ✓ | ✓ | ✓ | — |
+| Booking changed | ✓ | ✓ | ✓ | — |
+| Booking cancelled | ✓ | ✓ | ✓ | — |
+| 24hr reminder | ✓ | — | — | — |
+| 2hr reminder | — | ✓ | — | — |
+
+SMS is suppressed when `Customer.smsOptOut = true`.
+
+---
+
+## FacilitySettings
+
+**File**: `src/data/types.ts` only  
+**Store key**: `settings` (singleton object, not an array)
+
+Singleton record holding facility-wide configuration. Editable via Admin Settings page.
+
+```ts
+type FacilitySettings = {
+  facilityName: string;   // "The Diamond Sports Academy"
+  addressLine1: string;   // "8274 Lokus Rd"
+  addressLine2: string;   // "Odenton, MD 21113"
+  email: string;
+  phone: string;          // Display form: "(443) 865-1639"
+  phoneHref: string;      // tel: href: "tel:+14438651639"
+  website: string;
+  timezone: string;       // "America/New_York"
+  activeLanes: number;    // 4 — affects lane capacity checks in booking wizard
+  adminUsername: string;  // "admin" — used to validate login
+  adminPassword: string;  // "diamond123" default — changeable via Settings → Security
+};
+```
+
+**Note on admin credentials**: `adminUsername` and `adminPassword` are stored in `FacilitySettings` as a prototype convenience — the credentials live alongside other facility config in the Zustand `persist` store. Validation happens client-side on the login page; the API route (`/api/admin/auth`) only sets the session cookie after the client confirms credentials match. When a real database is introduced, admin credentials should be extracted into a dedicated `Admin` entity (see future state below).
+
+**Future state — Admin entity**: When a real DB is added, admin credentials and profile should move to a separate `Admin` table:
+
+```ts
+// Future — not yet implemented
+type Admin = {
+  id: string;
+  username: string;
+  passwordHash: string;   // bcrypt hash — never store plaintext
+  displayName: string;
+  email: string;
+  role: "superadmin" | "staff";
+  createdAt: string;
+  lastLoginAt?: string;
+};
+```
+
+---
+
+## Input Types (create operations)
+
+These strip server-generated fields and are used as parameters to `MockDataService` write methods.
+
+| Input Type | Derived From | Omitted Fields |
 |---|---|---|
-| Primary keys | `UUID` (gen_random_uuid()) | Booking/cancellation tokens exposed to users — GUIDs prevent enumeration |
-| Timestamps | `TIMESTAMPTZ` everywhere | NeonDB is UTC; TIMESTAMPTZ stores offset correctly |
-| Soft deletes | `deactivated_at TIMESTAMPTZ NULL` | Customers & instructors never hard-deleted (booking history must stay intact) |
-| Computed fields | Not stored | `totalSessionsDelivered`, `upcomingSessions` are `COUNT` aggregates on bookings — no drift |
-| Denormalized names | Removed from bookings | Prototype stored `customerName`/`instructorName` in Booking for display; production joins |
-| Slot arrays | `TEXT[]` (PostgreSQL array) | `instructor_availability.slots` stays as an array of `HH:MM` strings — simple and fast |
-| Lane config | `settings` key-value table | Allows admin to change lane count without a schema migration |
-| ENUMs | `TEXT` with CHECK constraints | Avoids PostgreSQL ENUM type rigidity; easier to add new values |
-| Recurring series | Dedicated table | Prototype used a bare string ID; production needs series-level metadata |
-| Multi-facility | `facilities` table + `facility_id FK` on scoped entities | Single schema supports many locations; customers and admin users are global |
+| `NewCustomer` | `Customer` | `id`, `createdAt`, `noShowCount`, `lateCancellationCount` |
+| `NewInstructor` | `Instructor` | `id`, `createdAt`, `totalSessionsDelivered`, `upcomingSessions` |
+| `NewBooking` | `Booking` | `id`, `bookingReference`, `cancellationToken`, `createdAt`, `customerName`, `instructorName`, `endTime` |
+| `NewBlackout` | `Blackout` | `id` |
+| `NewNotification` | `NotificationRecord` | `id`, `sentAt` |
 
 ---
 
-## ER Diagram
+## Filter Types
 
-```mermaid
-erDiagram
-
-  facilities {
-    uuid        id             PK
-    text        name
-    text        slug           UK
-    text        address_line1
-    text        address_line2
-    text        email
-    text        phone
-    text        website
-    text        timezone
-    smallint    active_lanes
-    boolean     is_active
-    timestamptz created_at
-    timestamptz updated_at
-  }
-
-  customers {
-    uuid        id                     PK
-    text        first_name
-    text        last_name
-    text        email                  UK
-    text        phone
-    boolean     is_active
-    boolean     is_flagged
-    int         no_show_count
-    int         late_cancellation_count
-    boolean     sms_opt_out
-    text        source
-    timestamptz created_at
-    timestamptz updated_at
-    timestamptz deactivated_at
-  }
-
-  instructors {
-    uuid        id                     PK
-    uuid        facility_id            FK
-    text        first_name
-    text        last_name
-    text        email                  UK
-    text        phone
-    text        speciality
-    text        instructor_type
-    boolean     is_active
-    timestamptz created_at
-    timestamptz updated_at
-    timestamptz deactivated_at
-  }
-
-  admin_users {
-    uuid        id                     PK
-    text        username               UK
-    text        email                  UK
-    text        password_hash
-    text        display_name
-    uuid        facility_id            FK
-    boolean     is_active
-    timestamptz last_login_at
-    timestamptz created_at
-    timestamptz updated_at
-  }
-
-  recurring_series {
-    uuid        id                     PK
-    uuid        facility_id            FK
-    uuid        customer_id            FK
-    uuid        instructor_id          FK
-    int         day_of_week
-    time        start_time
-    smallint    duration_minutes
-    smallint    lane_assigned
-    date        start_date
-    date        end_date
-    boolean     is_active
-    timestamptz created_at
-    timestamptz updated_at
-  }
-
-  bookings {
-    uuid        id                     PK
-    uuid        facility_id            FK
-    text        booking_reference      UK
-    text        cancellation_token     UK
-    uuid        customer_id            FK
-    uuid        instructor_id          FK
-    uuid        recurring_series_id    FK
-    date        date
-    time        start_time
-    time        end_time
-    smallint    duration_minutes
-    text        status
-    smallint    lane_assigned
-    boolean     is_for_child
-    smallint    child_age
-    text        relationship_to_customer
-    text        booked_by_name
-    boolean     is_walk_in
-    text        cancelled_by
-    text        cancellation_reason
-    text        conflict_reason
-    timestamptz created_at
-    timestamptz updated_at
-  }
-
-  instructor_schedules {
-    uuid        id                     PK
-    uuid        facility_id            FK
-    uuid        instructor_id          FK
-    smallint    day_of_week
-    time        start_time
-    time        end_time
-    boolean     is_active
-  }
-
-  instructor_availability {
-    uuid        id                     PK
-    uuid        facility_id            FK
-    uuid        instructor_id          FK
-    date        date
-    time        start_time
-    time        end_time
-    boolean     is_active
-    boolean     frozen
-    timestamptz updated_at
-  }
-
-  blackouts {
-    uuid        id                     PK
-    uuid        facility_id            FK
-    date        date
-    boolean     is_recurring
-    text        reason
-    timestamptz created_at
-  }
-
-  operating_hours {
-    uuid        id                     PK
-    uuid        facility_id            FK
-    smallint    day_of_week
-    time        open_time
-    time        close_time
-    boolean     is_closed
-    timestamptz updated_at
-  }
-
-  waitlist_entries {
-    uuid        id                     PK
-    uuid        facility_id            FK
-    date        date
-    time        desired_time
-    smallint    duration_minutes
-    uuid        instructor_id          FK
-    uuid        customer_id            FK
-    text        first_name
-    text        last_name
-    text        email
-    text        phone
-    timestamptz created_at
-    uuid        converted_booking_id   FK
-    timestamptz converted_at
-  }
-
-  notifications {
-    uuid        id                     PK
-    uuid        booking_id             FK
-    text        booking_reference
-    text        recipient_type
-    text        recipient_name
-    text        recipient_email
-    text        notification_type
-    text        channel
-    timestamptz sent_at
-    text        delivery_status
-    timestamptz created_at
-  }
-
-  settings {
-    uuid        facility_id            FK
-    text        key
-    text        value
-    timestamptz updated_at
-  }
-
-  %% Relationships
-  facilities        ||--o{ instructors           : "employs"
-  facilities        ||--o{ bookings              : "hosts"
-  facilities        ||--o{ recurring_series      : "hosts"
-  facilities        ||--o{ instructor_schedules   : "scopes"
-  facilities        ||--o{ instructor_availability : "scopes"
-  facilities        ||--o{ blackouts             : "has"
-  facilities        ||--o{ operating_hours       : "defines"
-  facilities        ||--o{ waitlist_entries      : "has"
-  facilities        ||--o{ settings              : "configures"
-  facilities        |o--o{ admin_users           : "managed by"
-  customers         ||--o{ bookings              : "places"
-  instructors       ||--o{ bookings              : "delivers"
-  recurring_series  ||--o{ bookings              : "generates"
-  customers         ||--o{ recurring_series      : "enrolls in"
-  instructors       ||--o{ recurring_series      : "assigned to"
-  bookings          ||--o{ notifications         : "triggers"
-  instructors       ||--o{ instructor_schedules   : "has"
-  instructors       ||--o{ instructor_availability : "has"
-  instructors       ||--o{ waitlist_entries      : "requested for"
-  customers         ||--o{ waitlist_entries      : "placed by (optional)"
-  bookings          |o--o| waitlist_entries      : "converted from"
+```ts
+type BookingFilters = {
+  date?: string;           // Exact date match "YYYY-MM-DD"
+  instructorId?: string;
+  customerId?: string;
+  status?: Booking["status"];
+  fromDate?: string;       // Inclusive range start
+  toDate?: string;         // Inclusive range end
+};
 ```
 
 ---
 
-## Entity Notes
+## ID Conventions
 
-### `facilities`
-- Each row represents one physical location (e.g. "Diamond Sports Academy – Odenton").
-- `slug` is a URL-safe identifier used in routing (e.g. `/admin/odenton/...`) — `UNIQUE`.
-- `active_lanes` replaces the global `settings('total_active_lanes')` key — lane capacity is inherently per-facility.
-- `address_line1` / `address_line2` replace the prototype's single `location` field (e.g. "8274 Lokus Rd" / "Odenton, MD 21113").
-- `website` stores the public-facing URL (e.g. `https://thediamondsportsacademy.com`).
-- `phone` stores the display form (e.g. "(443) 865-1639"). The `phoneHref` field in the prototype (`tel:+14438651639`) is **derived** — computed at render time from the `phone` value; not stored.
-- `is_active = false` soft-disables a location without deleting any historical data.
-- **Customers are not scoped to a facility** — a customer can book at any location; their history spans all facilities.
-- **Admin users**: `facility_id` is nullable. `NULL` = super-admin (cross-facility access); non-NULL = scoped to one location. A future `admin_user_facilities` join table can support multi-facility admins without a schema change.
-
-### `customers`
-- `source` values: `online_booking | admin_booking | import`
-- `no_show_count` and `late_cancellation_count` can be computed via aggregates, but are stored
-  here as denormalized counters (incremented on events) for fast admin dashboard reads without
-  a GROUP BY on every page load. Acceptable trade-off.
-- `is_flagged` is set manually by admin or automatically when `no_show_count >= 3`.
-
-### `instructors`
-- `phone` stores the instructor's contact number. Optional (some instructors may not have one on file).
-- `instructor_type` CHECK: `IN ('lane', 'non_lane')`. Required — no default. (Enhancement from prototype work.)
-  - `lane`: consumes a physical batting lane; `lane_assigned` is set on their bookings.
-  - `non_lane`: e.g. speed/agility or conditioning coaches who work off the lanes; `lane_assigned = NULL` on their bookings and lane-full checks do not apply.
-- The prototype has a `type` field (display label e.g. "Lane Instructor") separate from `instructor_type` ("lane"). In production, `type` is **dropped** — the display label is derived from `instructor_type` at render time.
-- `totalSessionsDelivered` and `upcomingSessions` shown in the prototype UI are **not stored** —
-  they are computed: `COUNT(bookings WHERE status='completed')` and
-  `COUNT(bookings WHERE status='confirmed' AND date >= TODAY)`.
-
-### `admin_users`
-- New table — prototype hardcodes credentials. Production stores bcrypt-hashed passwords.
-- Separate from instructors; an instructor is not necessarily an admin user.
-- `facility_id NULL` = super-admin (sees all facilities); non-NULL = restricted to one location.
-
-### `recurring_series`
-- New table — prototype only had a bare `recurringSeriesId` string on bookings.
-- `day_of_week`: 0=Sunday … 6=Saturday (ISO: 1=Monday preferred — choose one convention).
-- `end_date NULL` means open-ended series.
-- Individual booking cancellations don't affect the series record; only "cancel entire series"
-  sets `is_active = false`.
-
-### `bookings`
-- `status` CHECK: `IN ('confirmed', 'cancelled', 'no_show', 'completed', 'waitlisted')`
-  - `waitlisted`: booking exists but is held pending slot confirmation — used for recurring series sessions where an instructor conflict exists on a specific week
-- `cancelled_by` CHECK: `IN ('customer', 'admin')` — NULL when not cancelled
-- `conflict_reason` CHECK: `IN ('instructor_conflict', 'lane_at_capacity')` — NULL unless `status = 'waitlisted'`. Records why the booking could not be immediately confirmed.
-- `booked_by_name` stores the name of the person who made the booking when different from the participant (e.g. a parent booking for a child but not captured in `relationship_to_customer`). NULL for self-bookings.
-- `recurring_series_id` is NULL for one-off and walk-in bookings
-- `booking_reference` format: `DSA-YYYY-NNNNN` (sequential within year, generated at insert time)
-- `cancellation_token` is a random UUID used in the public cancellation URL
-
-### `instructor_availability`
-- **Updated from prototype work:** The prototype revealed two distinct availability structures that must both exist:
-  1. **`instructor_schedules`** — recurring weekly template (one row per instructor per day-of-week). Acts as fallback when no date-specific override exists.
-  2. **`instructor_availability`** — date-specific overrides. Takes full precedence over the weekly template for a given date.
-- `slots` computed (not stored): derive 30-min intervals from `start_time` to `end_time` at query time using `generate_series`.
-- **Critical constraint (from bug):** `is_active = true` with a null `start_time` or `end_time` is invalid. The prototype produced a broken "?" display for this state. Must be enforced with a CHECK constraint: `CHECK ((is_active = false) OR (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time))`.
-- `frozen = true` blocks normal admin edits — requires explicit override.
-- One row per instructor per date — `UNIQUE(instructor_id, date)`.
-- Saturday availability must be validated against Saturday facility hours (09:00–17:00), not weekday hours.
-
-#### Revised `instructor_schedules` table (new — replaces `recurring` nested object)
-
-| Column | Type | Notes |
+| Entity | Pattern | Example |
 |---|---|---|
-| `id` | `UUID` PK | |
-| `facility_id` | `UUID` FK | |
-| `instructor_id` | `UUID` FK | |
-| `day_of_week` | `SMALLINT` | 0=Sun … 6=Sat |
-| `start_time` | `TIME` | NULL when is_active = false |
-| `end_time` | `TIME` | NULL when is_active = false |
-| `is_active` | `BOOLEAN` DEFAULT false | |
+| Customer | `c{N}` | `c42` |
+| Instructor | `i{N}` | `i7` |
+| Booking | `b{N}` | `b1234` |
+| Booking reference | `DSA-{YYYY}-{NNNNN}` | `DSA-2026-00042` |
+| Cancellation token | `tok-b{N}-{hex8}` | `tok-b42-a3f9c100` |
+| InstructorAvailability | `av{N}` | `av301` |
+| OperatingHours | `oh{N}` | `oh1` |
+| Blackout | `bl{N}` | `bl1` |
+| Notification | `n{N}` | `n88` |
+| Recurring series | `series-{N}` | `series-14` |
 
-```sql
-ALTER TABLE instructor_schedules
-  ADD CONSTRAINT valid_dow CHECK (day_of_week BETWEEN 0 AND 6),
-  ADD CONSTRAINT valid_active_times CHECK (
-    (is_active = false) OR
-    (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time)
-  ),
-  ADD CONSTRAINT unique_instructor_dow UNIQUE (facility_id, instructor_id, day_of_week);
-```
+---
 
-#### Revised `instructor_availability` table (date-specific overrides)
+## Denormalization
 
-| Column | Type | Notes |
+Several fields duplicate data from a related entity for display performance. These are set at write time and are not updated if the source entity changes later.
+
+| Field | Source | Duplicated In |
 |---|---|---|
-| `id` | `UUID` PK | |
-| `facility_id` | `UUID` FK | |
-| `instructor_id` | `UUID` FK | |
-| `date` | `DATE` | |
-| `start_time` | `TIME` | NULL when is_active = false |
-| `end_time` | `TIME` | NULL when is_active = false |
-| `is_active` | `BOOLEAN` DEFAULT true | false = explicitly unavailable this date |
-| `frozen` | `BOOLEAN` DEFAULT false | |
-| `updated_at` | `TIMESTAMPTZ` | |
-
-```sql
-ALTER TABLE instructor_availability
-  ADD CONSTRAINT valid_active_times CHECK (
-    (is_active = false) OR
-    (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time)
-  ),
-  ADD CONSTRAINT unique_instructor_date UNIQUE (facility_id, instructor_id, date);
-```
-
-### `blackouts`
-- **Updated from prototype work:** Instructor-specific blackouts were removed. Instructor unavailability is handled via `instructor_availability` (set `is_active = false` for that date). Blackouts are facility-wide only.
-- Remove `type` and `instructor_id` columns from earlier design.
-- Replace `type` field with `is_recurring BOOLEAN`: `false` = exact date match; `true` = match MM-DD across any year.
-- **Yearly recurring match logic:** `EXTRACT(MONTH FROM bl.date) = EXTRACT(MONTH FROM candidate_date) AND EXTRACT(DAY FROM bl.date) = EXTRACT(DAY FROM candidate_date)`.
-- **Blackout offset rule (from bug):** When computing "N days from today" for seed or default blackouts, skip Sundays (and any `is_closed` day). Enforce this in the API/seed logic, not as a DB constraint.
-
-#### Revised `blackouts` table
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `UUID` PK | |
-| `facility_id` | `UUID` FK | |
-| `date` | `DATE` | For recurring: only MM-DD is used for matching |
-| `is_recurring` | `BOOLEAN` DEFAULT false | true = yearly recurring (MM-DD match) |
-| `reason` | `TEXT` NOT NULL | |
-| `created_at` | `TIMESTAMPTZ` | |
-
-### `waitlist_entries`
-- `customer_id` is nullable — a person can join the waitlist before having a customer account
-- `first_name`, `last_name`, `email`, `phone` are always populated regardless
-- `duration_minutes` (30 or 60) is captured when the customer joins the waitlist so admin can
-  promote them to a correctly-sized booking without asking again
-- `converted_booking_id` is NULL while the entry is still waiting; set to the created booking's
-  UUID when an admin promotes the customer to a confirmed booking
-- `converted_at` is stamped at the same time — allows reporting on waitlist-to-booking conversion
-  lag and conversion rates by instructor / time period
-- Entries are **deleted** on promotion (not retained); the admin waitlist page removes the row
-  immediately and shows a success modal with the new booking reference
-
-### `settings`
-- Per-facility key-value store for miscellaneous config that doesn't warrant its own column.
-- Composite PK: `(facility_id, key)` — same key can exist independently per facility.
-- `active_lanes` has moved into `facilities.active_lanes` directly (it's a first-class attribute, not a misc setting).
-- Example rows: `(facility_id, 'cancellation_window_hours', '24')`, `(facility_id, 'no_show_grace_minutes', '15')`
+| `customerName` | `Customer.firstName + lastName` | `Booking` |
+| `instructorName` | `Instructor.firstName + lastName` | `Booking`, `InstructorAvailability` |
+| `bookingReference` | `Booking.bookingReference` | `NotificationRecord` |
+| `recipientName` | Derived at notification time | `NotificationRecord` |
 
 ---
 
-## Indexes to Add
+## Store Version & Migration
 
-```sql
--- Bookings: most common query patterns
-CREATE INDEX idx_bookings_facility_date      ON bookings(facility_id, date);
-CREATE INDEX idx_bookings_customer_id        ON bookings(customer_id);
-CREATE INDEX idx_bookings_instructor_id      ON bookings(instructor_id);
-CREATE INDEX idx_bookings_status             ON bookings(status);
-CREATE INDEX idx_bookings_recurring_series   ON bookings(recurring_series_id);
+The Zustand store uses `persist` middleware with key `dsa-app-store`.
 
--- Availability: looked up by facility + instructor + date
-CREATE UNIQUE INDEX idx_availability_inst_date
-  ON instructor_availability(facility_id, instructor_id, date);
-
--- Blackouts: looked up by facility + date range
-CREATE INDEX idx_blackouts_facility_date     ON blackouts(facility_id, date);
-
--- Operating hours: one row per facility per day
-CREATE UNIQUE INDEX idx_operating_hours_facility_day
-  ON operating_hours(facility_id, day_of_week);
-
--- Waitlist: looked up by facility + date + instructor
-CREATE INDEX idx_waitlist_facility_date      ON waitlist_entries(facility_id, date, instructor_id);
-
--- Notifications: looked up by booking
-CREATE INDEX idx_notifications_booking_id   ON notifications(booking_id);
-
--- Settings: composite PK covers the main lookup; no extra index needed
-```
-
----
-
-## Constraints
-
-```sql
--- Bookings
-CHECK (status IN ('confirmed','cancelled','no_show','completed','waitlisted'))
-CHECK (cancelled_by IN ('customer','admin'))
-CHECK (conflict_reason IN ('instructor_conflict','lane_at_capacity'))
-CHECK (duration_minutes IN (30, 60))
-CHECK (lane_assigned BETWEEN 1 AND 10)  -- upper bound from facilities.active_lanes
-
--- Instructors
-CHECK (instructor_type IN ('lane', 'non_lane'))
-
--- Customers
-CHECK (source IN ('online_booking','admin_booking','import'))
-
--- Notifications
-CHECK (notification_type IN ('confirmation','reminder_24hr','reminder_2hr_sms','change','cancellation','calendar_invite'))
-CHECK (channel IN ('email','sms','calendar'))
-CHECK (delivery_status IN ('sent','pending','failed'))
-CHECK (recipient_type IN ('customer','instructor','admin'))
-
--- Operating hours
--- Note: prototype stores day_of_week as TEXT ("Monday"…"Sunday"); production uses SMALLINT (0=Sun…6=Sat)
-CHECK (day_of_week BETWEEN 0 AND 6)
-CHECK (is_closed = true OR (open_time IS NOT NULL AND close_time IS NOT NULL AND close_time > open_time))
-UNIQUE (facility_id, day_of_week)
-
--- instructor_schedules
-CHECK (day_of_week BETWEEN 0 AND 6)
-CHECK ((is_active = false) OR (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time))
-UNIQUE (facility_id, instructor_id, day_of_week)
-
--- instructor_availability (date-specific overrides)
-CHECK ((is_active = false) OR (start_time IS NOT NULL AND end_time IS NOT NULL AND end_time > start_time))
-UNIQUE (facility_id, instructor_id, date)
-```
-
----
-
-## What Changes vs. the Prototype
-
-| Prototype field | Production change |
-|---|---|
-| `Booking.customerName` | Removed — join `customers` |
-| `Booking.instructorName` | Removed — join `instructors` |
-| `Booking.isRecurring` | Derived: `recurring_series_id IS NOT NULL` |
-| `Instructor.totalSessionsDelivered` | Computed aggregate — not stored |
-| `Instructor.upcomingSessions` | Computed aggregate — not stored |
-| `LANE_CONFIG` object | Moved to `settings` table |
-| `LANE_UTILIZATION` snapshot | Computed at query time from `bookings` |
-| Hardcoded admin credentials | `admin_users` table with `password_hash` |
-| Bare `recurringSeriesId` string | FK → `recurring_series` table |
-| `InstructorAvailability.slots` TEXT[] | **Removed.** Slots computed at query time via `generate_series(start_time, end_time - interval '30 min', interval '30 min')`. |
-| `instructor_availability` (single table, slots stored) | **Split into two tables:** `instructor_schedules` (recurring weekly template, one row per DOW) + `instructor_availability` (date-specific overrides). Both have `start_time`/`end_time` + `is_active` + CHECK constraint that forbids `is_active=true` with null times. |
-| `blackouts.type IN ('facility','instructor')` + `instructor_id` | **Removed.** Instructor-specific unavailability uses `instructor_availability (is_active=false)`. Blackouts are facility-wide only. Replaced `type` with `is_recurring BOOLEAN`. |
-| No `instructor_type` field | Added `instructor_type TEXT CHECK IN ('lane','non_lane')` to `instructors`. Non-lane bookings skip lane-capacity checks and do not set `lane_assigned`. |
-| Saturday closed by default | **Changed.** `operating_hours` seed: Saturday `is_closed=false, open_time='09:00', close_time='17:00'`. Sunday remains closed. |
-| `WaitlistEntry` (no `durationMinutes`) | Added `duration_minutes SMALLINT` — captured at waitlist sign-up so admin can promote to correct session length |
-| `WaitlistEntry.convertedBookingId` — entries retained in prototype | In production DB, `converted_booking_id` + `converted_at` retained for audit/reporting; prototype deletes on promotion |
-| `Booking.status` missing `waitlisted` | Added `'waitlisted'` to status CHECK — used for recurring series sessions with instructor conflict |
-| No `Booking.conflictReason` | Added `conflict_reason TEXT CHECK IN ('instructor_conflict','lane_at_capacity')` — NULL unless waitlisted |
-| No `Booking.bookedByName` | Added `booked_by_name TEXT NULL` — captures who made the booking when different from participant |
-| `Instructor.type` (display label, redundant) | Dropped — derived from `instructor_type` at render time |
-| `Instructor` missing `phone` | Added `phone TEXT` to `instructors` table |
-| `FacilitySettings.location` (single field) | Split into `address_line1` + `address_line2` |
-| `FacilitySettings` missing `website` | Added `website TEXT` to `facilities` table |
-| `FacilitySettings.phoneHref` | **Derived** — computed from `phone` at render time; not stored |
-| `NotificationRecord.bookingReference` (denormalized) | Retained in production for display convenience (avoids join on every notification list load); acceptable denormalization |
-| `operating_hours.day_of_week` as TEXT ("Monday") | Production uses `SMALLINT` (0=Sun…6=Sat) — consistent with `instructor_schedules` |
-| Single-facility assumption throughout | Added `facilities` table; `facility_id FK` added to `instructors`, `bookings`, `recurring_series`, `instructor_availability`, `blackouts`, `operating_hours`, `waitlist_entries`, `settings`, `admin_users` — customers remain global |
-
----
-
-## NeonDB / Driver Notes
-- Use `@neondatabase/serverless` HTTP driver for edge/serverless functions (no TCP connection overhead)
-- `gen_random_uuid()` is available natively in PostgreSQL 13+ (NeonDB ships 16+) — no extension needed
-- Connection pooling is handled by Neon's built-in pooler — no PgBouncer setup required
-- For Drizzle ORM: `drizzle-orm/neon-http` adapter works seamlessly with this schema and gives
-  full type safety while generating raw SQL (near-zero overhead vs. writing SQL manually)
+- **Current version**: `10`
+- **Migration behavior**: any stored version lower than `10` wipes all state and re-seeds from mock generators
+- **To force a re-seed**: bump the `version` number in `useAppStore.ts`
+- **`skipHydration: true`**: the store does not read from localStorage until `useAppStore.persist.rehydrate()` is called in the root layout, preventing SSR hydration mismatches

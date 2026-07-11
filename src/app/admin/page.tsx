@@ -548,13 +548,13 @@ export default function AdminDashboard() {
             <Row label="Time" value={`${formatTime(selectedBooking.startTime)} – ${formatTime(selectedBooking.endTime)}`} />
             <Row label="Duration" value={`${selectedBooking.durationMinutes} min`} />
             {selectedBooking.isForChild && (
-              <Row label="Child" value={`Age ${selectedBooking.childAge} (${selectedBooking.relationshipToCustomer})`} />
+              <Row label="Athlete" value={[selectedBooking.childName, selectedBooking.childAge ? `Age ${selectedBooking.childAge}` : "", selectedBooking.relationshipToCustomer].filter(Boolean).join(" · ")} />
             )}
             <div className="flex gap-1 flex-wrap pt-1">
               {selectedBooking.isRecurring
                 ? <span className="badge-blue">Recurring series</span>
                 : <span className="badge-orange" style={{ color: "#131313" }}>Single-session</span>}
-              {selectedBooking.isForChild && <span className="badge-purple">Child</span>}
+              {selectedBooking.isForChild && <span className="badge-purple">Athlete</span>}
             </div>
             {selectedBooking.isRecurring && cancelScope.startsWith("confirm") && (
               <div className="pt-2 border-t border-gray-100 space-y-2">

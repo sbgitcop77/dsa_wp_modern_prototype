@@ -123,7 +123,7 @@ export default function ReportsPage() {
             {[
               { label: "Recurring series", value: recurringCount },
               { label: "Walk-ins", value: walkInCount },
-              { label: "Child sessions", value: childCount },
+              { label: "Athlete sessions", value: childCount },
               { label: "Standard (individual)", value: activeSessions.filter(b => !b.isRecurring && !b.isWalkIn && !b.isForChild).length },
             ].map(r => (
               <div key={r.label} className="flex justify-between py-1 border-b border-gray-100 last:border-0">

@@ -18,6 +18,8 @@ export const SEED_FACILITY_SETTINGS: FacilitySettings = {
   website: "https://thediamondsportsacademy.com",
   timezone: "America/New_York",
   activeLanes: 4,
+  adminUsername: "admin",
+  adminPassword: "diamond123",
 };
 
 const DEFAULT_RECURRING: Instructor["availability"]["recurring"] = {
@@ -344,7 +346,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "dsa-app-store",
-      version: 9,
+      version: 10,
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,
       migrate: () => ({

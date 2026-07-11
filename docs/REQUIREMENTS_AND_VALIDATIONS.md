@@ -117,7 +117,7 @@ Reference for the real NeonDB + API implementation. Every rule here was discover
 | PB-11 | Booking reference format: `DSA-YYYY-NNNNN` (zero-padded 5-digit sequence). | Original |
 | PB-12 | Each booking generates a unique `cancellationToken` used by the public Manage Booking page. | Original |
 | PB-13 | Child bookings capture: `isForChild`, `childAge`, `relationshipToCustomer`. | Original |
-| PB-14 | Walk-in bookings (`isWalkIn = true`) are created by admin only and follow the same lane/conflict rules. | Original |
+| ~~PB-14~~ | ~~Walk-in bookings (`isWalkIn = true`) are created by admin only.~~ **Removed** — all bookings must go through the public Book a Session wizard. The `isWalkIn` field is legacy and always `false` on new bookings. | Removed |
 
 ---
 
@@ -339,13 +339,13 @@ Bookings are created progressively through the wizard during the test run.
 
 ## 17. Waitlisted Booking Status (new feature — added Jul 4 2026)
 
-A booking with `status = "waitlisted"` is distinct from a `WaitlistEntry` (join-the-waitlist record). A waitlisted booking is created as part of a recurring series when a future week has a soft conflict that does not block the whole series.
+A booking with `status = "waitlisted"` is created when the chosen instructor is already booked at the selected slot. There is no separate `WaitlistEntry` entity — that concept was removed. Waitlisted sessions are regular `Booking` records that admin can promote to `confirmed`.
 
 | # | Rule | Source |
 |---|---|---|
-| WB-01 | Waitlisted status is only assigned during recurring series confirmation — never for single-session bookings. | New feature |
-| WB-02 | `conflictReason` must always be set on waitlisted bookings: `"instructor_conflict"` or `"lane_at_capacity"`. | New feature |
-| WB-03 | Hard blocks (blackout, no instructor availability, slot window mismatch) prevent series confirmation entirely. Soft blocks (instructor conflict, lane full) produce a waitlisted booking and allow the series to proceed. | New feature |
+| WB-01 | Waitlisted status is assigned when the chosen instructor is already booked at the selected slot — applies to both single-session and recurring series bookings. | New feature |
+| WB-02 | `conflictReason` must always be set on waitlisted bookings: `"instructor_conflict"`. | New feature |
+| WB-03 | Hard blocks (blackout, no instructor availability, slot window mismatch) prevent series confirmation entirely. Soft blocks (instructor conflict) produce a waitlisted booking and allow the series to proceed. | New feature |
 | WB-04 | Week 0 of a recurring series (the user-selected base date) is always `confirmed`. Conflict detection applies to weeks 1–N only. | New feature |
 | WB-05 | `confirmWaitlisted(id)` sets `status = "confirmed"` and clears `conflictReason`. In production, re-verify availability before confirming (return 409 if still blocked). | New feature / Known gap |
 | WB-06 | The 24-hour change window is **bypassed** for waitlisted bookings — customers can confirm at any time. | New feature |
@@ -371,7 +371,6 @@ WeeklyStatus = { date, status: "confirmed" | "waitlisted" | "hard_block", reason
 
 **Waitlisted reasons** (series proceeds; week created as waitlisted):
 - `instructor_conflict` — instructor has a confirmed overlapping booking on that date
-- `lane_at_capacity` — all facility lanes are full for that slot on that date
 
 Step 3 UI behavior:
 - Any hard block: red error listing the blocked dates, Next button disabled

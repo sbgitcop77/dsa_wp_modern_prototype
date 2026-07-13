@@ -390,6 +390,7 @@ export default function BookingsPage() {
                 <Row label="Relationship" value={selected.relationshipToCustomer ?? ""} />
               </>
             )}
+            {selected.notes && <Row label="Notes" value={selected.notes} />}
             <div className="flex gap-1 flex-wrap pt-1">
               {selected.isRecurring
                 ? <span className="badge-blue">Recurring</span>

@@ -112,6 +112,8 @@ Tell us who the session is for:
 
 Your email is used to look up your account. If you've booked before, your details are already on file.
 
+There's also an optional **Additional Instructions** field for notes to the instructor (injuries, goals, areas to focus on). If filled in, it's visible to admin staff on the Today's Schedule grid and in the Manage Bookings detail modal.
+
 ### Step 5 — Review & Confirm
 
 Review all the details. If everything looks right, click **Confirm Booking**.
@@ -312,7 +314,7 @@ The dashboard shows a live grid of all sessions scheduled for **today** (or any 
 - Click a booking block to view its details.
 - Export the day's schedule as a PDF.
 
-The grid spans **6 AM to midnight**. Sessions are shown as color-coded blocks per instructor. The legend at the top shows each instructor's color.
+The grid spans **6 AM to midnight**. Sessions are shown as color-coded blocks per instructor. The legend at the top shows each instructor's color. If the customer left Additional Instructions at booking time, the note appears in braces next to their name on the card, e.g. `Taylor Nguyen {Bring extra cleats, sore shoulder}`.
 
 **Booking badges on cards:**
 
@@ -353,6 +355,7 @@ Click any row to open the detail modal. It shows:
 - Status badge — amber for Waitlisted with the conflict reason shown
 - Session type (single / recurring series with session position e.g. "2 of 4")
 - Child/athlete info (if booking is for another athlete)
+- Notes (if the customer filled in Additional Instructions at booking time — omitted otherwise)
 
 **Actions in the modal:**
 

@@ -90,6 +90,7 @@ type Booking = {
   cancellationReason?: string;
   conflictReason?: "instructor_conflict";  // set on waitlisted bookings
   laneAssigned?: number;              // 1–activeLanes; undefined for non-lane instructors
+  notes?: string;                     // additional instructions from the participant, collected at booking Step 4
   createdAt: string;                  // ISO timestamp
 };
 ```

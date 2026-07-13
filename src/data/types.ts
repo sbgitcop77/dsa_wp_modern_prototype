@@ -71,6 +71,7 @@ export type Booking = {
   cancellationReason?: string;
   conflictReason?: "instructor_conflict";
   laneAssigned?: number;      // 1–4; undefined for Non-Lane Instructors
+  notes?: string;             // additional instructions from the participant at booking time
   createdAt: string;
 };
 

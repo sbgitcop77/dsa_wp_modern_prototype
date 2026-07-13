@@ -25,6 +25,75 @@ All entities are TypeScript interfaces. There is no real database — data lives
 
 ---
 
+## Entity Relationships (ERD)
+
+```mermaid
+erDiagram
+  CUSTOMER ||--o{ BOOKING : books
+  INSTRUCTOR ||--o{ BOOKING : delivers
+  INSTRUCTOR ||--o{ INSTRUCTOR_AVAILABILITY : "has slots"
+  BOOKING ||--o{ NOTIFICATION_RECORD : triggers
+
+  CUSTOMER {
+    string id PK
+    string firstName
+    string lastName
+    string email
+    boolean isActive
+    boolean isFlagged
+    boolean smsOptOut
+  }
+  INSTRUCTOR {
+    string id PK
+    string firstName
+    string lastName
+    string instructor_type
+    boolean isActive
+  }
+  BOOKING {
+    string id PK
+    string customerId FK
+    string instructorId FK
+    string date
+    string status
+    string recurringSeriesId
+    string notes
+  }
+  INSTRUCTOR_AVAILABILITY {
+    string id PK
+    string instructorId FK
+    string date
+    string slots
+  }
+  NOTIFICATION_RECORD {
+    string id PK
+    string bookingId FK
+    string notificationType
+    string channel
+    string deliveryStatus
+  }
+  OPERATING_HOURS {
+    string id PK
+    string dayOfWeek
+    string openTime
+    string closeTime
+  }
+  BLACKOUT {
+    string id PK
+    string date
+    boolean isRecurring
+  }
+  FACILITY_SETTINGS {
+    string facilityName
+    number activeLanes
+    string adminUsername
+  }
+```
+
+`OperatingHours`, `Blackout`, and `FacilitySettings` are standalone config entities — no foreign keys connect them to `Booking`; the booking wizard reads them at request time to filter available dates/times rather than joining against them.
+
+---
+
 ## Customer
 
 **File**: `src/data/mock/customers.ts`  
@@ -138,6 +207,7 @@ type Booking = {
   cancellationReason?: string;
   conflictReason?: "instructor_conflict"; // Set when status = "waitlisted"
   laneAssigned?: number;         // 1–4; undefined or 0 for waitlisted bookings
+  notes?: string;                // Additional instructions from the participant, collected at booking Step 4
   createdAt: string;             // ISO 8601 UTC
 };
 ```
@@ -147,6 +217,7 @@ type Booking = {
 - When `isForChild = true`, the admin Customer column shows `childName` (the participant) rather than `customerName` (the booker).
 - `recurringSeriesId` links siblings. Cancelling a series cancels all future siblings with the same `recurringSeriesId` and `status !== "cancelled"`.
 - `status = "waitlisted"` means the instructor was already booked at this slot. `conflictReason` is always `"instructor_conflict"` — lane capacity conflicts do not produce waitlisted bookings in the current implementation.
+- `notes` is optional and only set when the customer fills in Additional Instructions at booking Step 4. It's surfaced in braces next to the customer name on the admin Today's Schedule grid, and as a "Notes" row in the Manage Bookings detail modal (both omitted when absent).
 
 ---
 

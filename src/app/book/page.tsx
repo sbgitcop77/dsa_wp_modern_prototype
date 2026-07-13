@@ -335,6 +335,7 @@ function BookPageInner() {
         laneAssigned: isNonLane || bookingStatus === "waitlisted"
           ? undefined
           : laneUsedAt(bookingDate, form.time) + 1,
+        notes: form.additionalInstructions.trim() || undefined,
       });
       allBookings.push(booking);
       if (w === 0) firstRef = booking.bookingReference;

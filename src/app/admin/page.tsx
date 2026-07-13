@@ -413,7 +413,7 @@ export default function AdminDashboard() {
                       >
                         <div className="font-bold leading-tight underline">{b.instructorName} · {b.durationMinutes} mins</div>
                         <div className="opacity-80 leading-tight text-[11px] mt-0.5">
-                          {b.customerName}{b.isRecurring && " 🔁"}
+                          {b.customerName}{b.notes && ` {${b.notes}}`}{b.isRecurring && " 🔁"}
                         </div>
                       </button>
                     );
